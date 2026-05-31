@@ -37,10 +37,16 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'corsheaders',
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'apps.authentication',
+    'apps.posts',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -74,8 +80,16 @@ WSGI_APPLICATION = 'core.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'mssql',
+        'NAME': 'UITie_Python',                                 
+        'USER': 'sa',                                    
+        'PASSWORD': 'T@oLaPassWord123',                  
+        'HOST': '127.0.0.1',                             
+        'PORT': '1433',                                  
+        'OPTIONS': {
+            'driver': 'ODBC Driver 18 for SQL Server',    
+            'extra_params': 'TrustServerCertificate=yes;', 
+        },
     }
 }
 
@@ -104,7 +118,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Ho_Chi_Minh'
 
 USE_I18N = True
 
@@ -115,3 +129,26 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+
+# ---- CẤU HÌNH THÊM CHO ĐỒ ÁN UITIE ----
+
+# 1. Cho phép tất cả các nguồn (React Localhost) kết nối đến API trong giai đoạn dev
+CORS_ALLOW_ALL_ORIGINS = True 
+
+# 2. Định nghĩa REST Framework sử dụng JWT làm phương thức xác thực chính
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    )
+}
+
+# 3. Cấu hình thời gian hết hạn của Token bảo mật
+from datetime import timedelta
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),      # Token dùng trong 1 ngày
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),     # Refresh Token dùng trong 7 ngày
+    'ROTATE_REFRESH_TOKENS': False,
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,                       # Dùng chính Secret Key phía trên để mã hóa
+    'AUTH_HEADER_TYPES': ('Bearer',),
+}
