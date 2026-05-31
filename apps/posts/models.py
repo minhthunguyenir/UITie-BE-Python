@@ -1,12 +1,4 @@
-# This is an auto-generated Django model module.
-# You'll have to do the following manually to clean this up:
-#   * Rearrange models' order
-#   * Make sure each model has one field with primary_key=True
-#   * Make sure each ForeignKey and OneToOneField has `on_delete` set to the desired behavior
-#   * Remove `managed = False` lines if you wish to allow Django to create, modify, and delete the table
-# Feel free to rename the models, but don't rename db_table values or field names.
 from django.db import models
-
 
 class Attachments(models.Model):
     id = models.BigAutoField(primary_key=True)
@@ -59,7 +51,7 @@ class CommentAttachments(models.Model):
 class Comments(models.Model):
     id = models.BigAutoField(primary_key=True)
     post = models.ForeignKey('Posts', models.DO_NOTHING)
-    user = models.ForeignKey('Users', models.DO_NOTHING)
+    user = models.ForeignKey('authentication.Users', models.DO_NOTHING)
     parent_comment = models.ForeignKey('self', models.DO_NOTHING, blank=True, null=True)
     content = models.TextField(db_collation='SQL_Latin1_General_CP1_CI_AS', blank=True, null=True)
     created_at = models.DateTimeField(blank=True, null=True)
@@ -72,8 +64,8 @@ class Comments(models.Model):
 
 class Follows(models.Model):
     id = models.BigAutoField(primary_key=True)
-    follower = models.ForeignKey('Users', models.DO_NOTHING)
-    following = models.ForeignKey('Users', models.DO_NOTHING, related_name='follows_following_set')
+    follower = models.ForeignKey('authentication.Users', models.DO_NOTHING)
+    following = models.ForeignKey('authentication.Users', models.DO_NOTHING, related_name='follows_following_set')
     created_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField(blank=True, null=True)
 
@@ -86,7 +78,7 @@ class Follows(models.Model):
 class GroupChats(models.Model):
     id = models.BigAutoField(primary_key=True)
     group_name = models.CharField(max_length=255, db_collation='SQL_Latin1_General_CP1_CI_AS', blank=True, null=True)
-    created_by = models.ForeignKey('Users', models.DO_NOTHING, db_column='created_by', blank=True, null=True)
+    created_by = models.ForeignKey('authentication.Users', models.DO_NOTHING, db_column='created_by', blank=True, null=True)
     created_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField(blank=True, null=True)
 
@@ -98,7 +90,7 @@ class GroupChats(models.Model):
 class GroupMembers(models.Model):
     id = models.BigAutoField(primary_key=True)
     group = models.ForeignKey(GroupChats, models.DO_NOTHING)
-    user = models.ForeignKey('Users', models.DO_NOTHING)
+    user = models.ForeignKey('authentication.Users', models.DO_NOTHING)
     status = models.CharField(max_length=20, db_collation='SQL_Latin1_General_CP1_CI_AS')
     joined_at = models.DateTimeField(blank=True, null=True)
     created_at = models.DateTimeField(blank=True, null=True)
@@ -112,7 +104,7 @@ class GroupMembers(models.Model):
 
 class Likes(models.Model):
     id = models.BigAutoField(primary_key=True)
-    user = models.ForeignKey('Users', models.DO_NOTHING)
+    user = models.ForeignKey('authentication.Users', models.DO_NOTHING)
     post = models.ForeignKey('Posts', models.DO_NOTHING)
     created_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField(blank=True, null=True)
@@ -135,8 +127,8 @@ class MessageAttachments(models.Model):
 
 class Messages(models.Model):
     id = models.BigAutoField(primary_key=True)
-    sender = models.ForeignKey('Users', models.DO_NOTHING)
-    receiver = models.ForeignKey('Users', models.DO_NOTHING, related_name='messages_receiver_set', blank=True, null=True)
+    sender = models.ForeignKey('authentication.Users', models.DO_NOTHING)
+    receiver = models.ForeignKey('authentication.Users', models.DO_NOTHING, related_name='messages_receiver_set', blank=True, null=True)
     group = models.ForeignKey(GroupChats, models.DO_NOTHING, blank=True, null=True)
     content = models.TextField(db_collation='SQL_Latin1_General_CP1_CI_AS', blank=True, null=True)
     created_at = models.DateTimeField(blank=True, null=True)
@@ -149,7 +141,7 @@ class Messages(models.Model):
 
 class Notifications(models.Model):
     id = models.BigAutoField(primary_key=True)
-    user = models.ForeignKey('Users', models.DO_NOTHING)
+    user = models.ForeignKey('authentication.Users', models.DO_NOTHING)
     content = models.TextField(db_collation='SQL_Latin1_General_CP1_CI_AS', blank=True, null=True)
     type = models.CharField(max_length=50, db_collation='SQL_Latin1_General_CP1_CI_AS', blank=True, null=True)
     is_read = models.BooleanField()
@@ -164,7 +156,7 @@ class Notifications(models.Model):
 
 class OtpVerification(models.Model):
     otp_id = models.BigAutoField(primary_key=True)
-    user = models.ForeignKey('Users', models.DO_NOTHING)
+    user = models.ForeignKey('authentication.Users', models.DO_NOTHING)
     otp_code = models.CharField(max_length=10, db_collation='SQL_Latin1_General_CP1_CI_AS')
     otp_type = models.CharField(max_length=30, db_collation='SQL_Latin1_General_CP1_CI_AS')
     expired_at = models.DateTimeField(blank=True, null=True)
@@ -189,7 +181,7 @@ class PostAttachments(models.Model):
 
 class Posts(models.Model):
     id = models.BigAutoField(primary_key=True)
-    user = models.ForeignKey('Users', models.DO_NOTHING)
+    user = models.ForeignKey('authentication.Users', models.DO_NOTHING)
     category = models.ForeignKey(Categories, models.DO_NOTHING, blank=True, null=True)
     parent_post = models.ForeignKey('self', models.DO_NOTHING, blank=True, null=True)
     content = models.TextField(db_collation='SQL_Latin1_General_CP1_CI_AS', blank=True, null=True)
@@ -208,10 +200,10 @@ class Posts(models.Model):
 
 class Reports(models.Model):
     id = models.BigAutoField(primary_key=True)
-    reporter = models.ForeignKey('Users', models.DO_NOTHING)
-    reported_user = models.ForeignKey('Users', models.DO_NOTHING, related_name='reports_reported_user_set', blank=True, null=True)
+    reporter = models.ForeignKey('authentication.Users', models.DO_NOTHING)
+    reported_user = models.ForeignKey('authentication.Users', models.DO_NOTHING, related_name='reports_reported_user_set', blank=True, null=True)
     reported_post = models.ForeignKey(Posts, models.DO_NOTHING, blank=True, null=True)
-    resolved_by = models.ForeignKey('Users', models.DO_NOTHING, db_column='resolved_by', related_name='reports_resolved_by_set', blank=True, null=True)
+    resolved_by = models.ForeignKey('authentication.Users', models.DO_NOTHING, db_column='resolved_by', related_name='reports_resolved_by_set', blank=True, null=True)
     reason = models.TextField(db_collation='SQL_Latin1_General_CP1_CI_AS', blank=True, null=True)
     status = models.CharField(max_length=20, db_collation='SQL_Latin1_General_CP1_CI_AS')
     target_type = models.CharField(max_length=20, db_collation='SQL_Latin1_General_CP1_CI_AS', blank=True, null=True)
@@ -222,25 +214,3 @@ class Reports(models.Model):
     class Meta:
         managed = False
         db_table = 'reports'
-
-
-class Users(models.Model):
-    id = models.BigAutoField(primary_key=True)
-    email = models.CharField(unique=True, max_length=255, db_collation='SQL_Latin1_General_CP1_CI_AS')
-    password = models.CharField(max_length=255, db_collation='SQL_Latin1_General_CP1_CI_AS')
-    full_name = models.CharField(max_length=255, db_collation='SQL_Latin1_General_CP1_CI_AS')
-    mssv = models.CharField(unique=True, max_length=20, db_collation='SQL_Latin1_General_CP1_CI_AS', blank=True, null=True)
-    phone_number = models.CharField(max_length=20, db_collation='SQL_Latin1_General_CP1_CI_AS', blank=True, null=True)
-    role = models.CharField(max_length=20, db_collation='SQL_Latin1_General_CP1_CI_AS')
-    status = models.CharField(max_length=20, db_collation='SQL_Latin1_General_CP1_CI_AS')
-    status_reason = models.TextField(db_collation='SQL_Latin1_General_CP1_CI_AS', blank=True, null=True)
-    faculty = models.CharField(max_length=255, db_collation='SQL_Latin1_General_CP1_CI_AS', blank=True, null=True)
-    class_name = models.CharField(max_length=100, db_collation='SQL_Latin1_General_CP1_CI_AS', blank=True, null=True)
-    academic_year = models.CharField(max_length=20, db_collation='SQL_Latin1_General_CP1_CI_AS', blank=True, null=True)
-    remember_token = models.CharField(max_length=100, db_collation='SQL_Latin1_General_CP1_CI_AS', blank=True, null=True)
-    created_at = models.DateTimeField(blank=True, null=True)
-    updated_at = models.DateTimeField(blank=True, null=True)
-
-    class Meta:
-        managed = False
-        db_table = 'users'
