@@ -11,6 +11,10 @@ https://docs.djangoproject.com/en/6.0/ref/settings/
 """
 
 from pathlib import Path
+import os
+from dotenv import load_dotenv
+
+load_dotenv() # Kích hoạt đọc file .env
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -81,14 +85,14 @@ WSGI_APPLICATION = 'core.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'mssql',
-        'NAME': 'UITie_Python',                                 
-        'USER': 'sa',                                    
-        'PASSWORD': 'T@oLaPassWord123',                  
-        'HOST': '127.0.0.1',                             
-        'PORT': '1433',                                  
+        'NAME': os.getenv('DB_NAME', 'UITie_Python'),
+        'USER': os.getenv('DB_USER', 'sa'),
+        'PASSWORD': os.getenv('DB_PASSWORD', 'MatKhauMacDinhNeuKhongCoEnv'),
+        'HOST': os.getenv('DB_HOST', '127.0.0.1'),
+        'PORT': os.getenv('DB_PORT', '1433'),
         'OPTIONS': {
-            'driver': 'ODBC Driver 18 for SQL Server',    
-            'extra_params': 'TrustServerCertificate=yes;', 
+            'driver': 'ODBC Driver 18 for SQL Server',
+            'extra_params': 'TrustServerCertificate=yes;',
         },
     }
 }
