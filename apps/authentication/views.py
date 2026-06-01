@@ -7,6 +7,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.hashers import check_password
 from apps.authentication.models import Users
 from apps.authentication.serializers import LoginRequestSerializer, UserResponseSerializer
+from apps.authentication.serializers import UserResponseSerializer, UserSaveSerializer
 
 class LoginAPIView(APIView):
     def post(self, request):
@@ -81,3 +82,146 @@ class UserListAPIView(APIView):
         return Response({
             "data": serializer.data
         }, status=status.HTTP_200_OK)
+    
+    def post(self, request):
+        # Chốt chặn 1: Vẫn cấm quyền Student tuyệt đối không cho tạo tài khoản
+        if request.user.role not in ['Super Admin', 'Admin']:
+            return Response(
+                {"detail": "Bạn không có quyền thực hiện hành động này!"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # 🛠️ CHỐT CHẶN 2 (CHUẨN SRS): Kiểm tra phân cấp quyền của Admin thường
+        if request.user.role == 'Admin':
+            role_muon_tao = request.data.get('role')
+            # Nếu Admin thường muốn tạo tài khoản Admin hoặc Super Admin -> Chặn ngay
+            if role_muon_tao in ['Super Admin', 'Admin']:
+                return Response(
+                    {"detail": "Tài khoản Admin thường chỉ được phép tạo tài khoản cho Student"}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+        # ---- Nếu vượt qua các chốt chặn trên an toàn -> Tiến hành tạo tài khoản ----
+        serializer = UserSaveSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            return Response({
+                "data": UserResponseSerializer(user).data
+            }, status=status.HTTP_201_CREATED)
+            
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class UserDetailAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, pk):
+        # 1. PHÂN QUYỀN CHUNG: Chỉ Admin/Super Admin mới được vào phòng sửa
+        if request.user.role not in ['Super Admin', 'Admin']:
+            return Response({"detail": "Bạn không có quyền!"}, status=status.HTTP_403_FORBIDDEN)
+
+        # 2. TÌM USER: Check xem cái ID (pk) cần sửa có tồn tại dưới DB không
+        try:
+            user_to_update = Users.objects.get(pk=pk)
+        except Users.DoesNotExist:
+            return Response({"detail": "Không tìm thấy người dùng này!"}, status=status.HTTP_404_NOT_FOUND)
+
+        # 3. KIỂM TRA QUYỀN NÂNG CAO (Bảo vệ tuyệt đối theo SRS):
+        if request.user.role == 'Admin':
+            # - Admin thường KHÔNG ĐƯỢC phép đụng vào / sửa đổi tài khoản của Admin khác hoặc Super Admin
+            if user_to_update.role in ['Super Admin', 'Admin']:
+                return Response(
+                    {"detail": "Tài khoản Admin thường không có quyền chỉnh sửa tài khoản cấp cao khác!"}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            # - Admin thường nếu cố tình đổi role của user khác thành Admin/Super Admin cũng bị block luôn
+            role_moi = request.data.get('role')
+            if role_moi in ['Super Admin', 'Admin']:
+                return Response(
+                    {"detail": "Admin thường không thể nâng cấp tài khoản lên quyền Admin/Super Admin!"}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+        # 4. TIẾN HÀNH CẬP NHẬT: Dùng partial=True để FE chỉ cần gửi các trường thay đổi (ví dụ: gửi mỗi status để khóa)
+        serializer = UserSaveSerializer(user_to_update, data=request.data, partial=True)
+        
+        if serializer.is_valid():
+            updated_user = serializer.save()
+            return Response({
+                "data": UserResponseSerializer(updated_user).data
+            }, status=status.HTTP_200_OK)
+            
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class UserLockAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, pk):
+        # 1. PHÂN QUYỀN CHUNG: Chỉ Admin/Super Admin mới được quyền khóa người khác
+        if request.user.role not in ['Super Admin', 'Admin']:
+            return Response({"detail": "Bạn không có quyền!"}, status=status.HTTP_403_FORBIDDEN)
+
+        # 2. TÌM USER: Check xem tài khoản cần khóa có tồn tại không
+        try:
+            user_to_lock = Users.objects.get(pk=pk)
+        except Users.DoesNotExist:
+            return Response({"detail": "Không tìm thấy người dùng này!"}, status=status.HTTP_404_NOT_FOUND)
+
+        # 3. KIỂM TRA QUYỀN NÂNG CAO (Theo SRS): Admin thường không được khóa Admin khác hoặc Super Admin
+        if request.user.role == 'Admin' and user_to_lock.role in ['Super Admin', 'Admin']:
+            return Response(
+                {"detail": "Tài khoản Admin thường không có quyền khóa tài khoản cấp cao khác!"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # 4. TIẾN HÀNH KHÓA: Ép trạng thái thành 'Locked'
+        # Đồng thời lấy toàn bộ dữ liệu FE gửi lên (bao gồm cả lý do khóa nhập tay nếu có)
+        data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+        data['status'] = 'Locked'
+
+        # Dùng Serializer để cập nhật an toàn vào Database
+        serializer = UserSaveSerializer(user_to_lock, data=data, partial=True)
+        if serializer.is_valid():
+            updated_user = serializer.save()
+            return Response({
+                "data": UserResponseSerializer(updated_user).data
+            }, status=status.HTTP_200_OK)
+            
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+class UserUnlockAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, pk):
+        # 1. PHÂN QUYỀN: Chỉ Admin/Super Admin mới được quyền mở khóa
+        if request.user.role not in ['Super Admin', 'Admin']:
+            return Response({"detail": "Bạn không có quyền!"}, status=status.HTTP_403_FORBIDDEN)
+
+        # 2. TÌM USER: Check xem tài khoản cần mở khóa có tồn tại không
+        try:
+            user_to_unlock = Users.objects.get(pk=pk)
+        except Users.DoesNotExist:
+            return Response({"detail": "Không tìm thấy người dùng này!"}, status=status.HTTP_404_NOT_FOUND)
+
+        # 3. KIỂM TRA QUYỀN NÂNG CAO (Theo SRS): Admin thường không được can thiệp tài khoản cấp cao
+        if request.user.role == 'Admin' and user_to_unlock.role in ['Super Admin', 'Admin']:
+            return Response(
+                {"detail": "Tài khoản Admin thường không có quyền mở khóa tài khoản cấp cao khác!"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # 4. TIẾN HÀNH MỞ KHÓA: Ép trạng thái quay trở lại 'Active'
+        data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
+        data['status'] = 'Active'
+
+        # Lưu cập nhật vào Database SQL Server
+        serializer = UserSaveSerializer(user_to_unlock, data=data, partial=True)
+        if serializer.is_valid():
+            updated_user = serializer.save()
+            return Response({
+                "data": UserResponseSerializer(updated_user).data
+            }, status=status.HTTP_200_OK)
+            
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
