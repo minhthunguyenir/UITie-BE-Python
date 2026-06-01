@@ -85,14 +85,14 @@ WSGI_APPLICATION = 'core.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'mssql',
-        'NAME': os.getenv('DB_NAME', 'UITie_Python'),
-        'USER': os.getenv('DB_USER', 'sa'),
-        'PASSWORD': os.getenv('DB_PASSWORD', 'MatKhauMacDinhNeuKhongCoEnv'),
-        'HOST': os.getenv('DB_HOST', '127.0.0.1'),
-        'PORT': os.getenv('DB_PORT', '1433'),
+        'NAME': 'UITie_Python',                                 
+        'USER': 'sa',                                    
+        'PASSWORD': 'T@oLaPassWord123',                  
+        'HOST': '127.0.0.1',                             
+        'PORT': '1433',                                  
         'OPTIONS': {
-            'driver': 'ODBC Driver 18 for SQL Server',
-            'extra_params': 'TrustServerCertificate=yes;',
+            'driver': 'ODBC Driver 18 for SQL Server',    
+            'extra_params': 'TrustServerCertificate=yes;', 
         },
     }
 }
@@ -156,3 +156,5 @@ SIMPLE_JWT = {
     'SIGNING_KEY': SECRET_KEY,                       # Dùng chính Secret Key phía trên để mã hóa
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
+
+AUTH_USER_MODEL = 'authentication.Users'

@@ -1,6 +1,8 @@
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.hashers import check_password
 from apps.authentication.models import Users
@@ -53,4 +55,29 @@ class LoginAPIView(APIView):
                 "user": UserResponseSerializer(user).data,
                 "token": str(refresh.access_token)
             }
+        }, status=status.HTTP_200_OK)
+
+class UserListAPIView(APIView):
+    # Khai báo bắt buộc phải đăng nhập và truyền Token JWT ở Header thì mới nói chuyện tiếp
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # 1. PHÂN QUYỀN: Kiểm tra xem người đang gọi API có phải là Admin không
+        # (request.user lúc này chính là đối tượng User đang đăng nhập dựa theo Token gửi lên)
+        if request.user.role not in ['Super Admin', 'Admin']:
+            return Response(
+                {"detail": "Bạn không có quyền truy cập tính năng này!"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # 2. LẤY DỮ LIỆU: Lấy toàn bộ danh sách người dùng trong hệ thống
+        users = Users.objects.all().order_by('-id') # Sắp xếp user mới tạo lên đầu danh sách
+
+        # 3. SERIALIZE: Ép đống dữ liệu này qua Serializer (thêm many=True vì đây là một danh sách)
+        serializer = UserResponseSerializer(users, many=True)
+
+        # 4. ĐÓNG GÓI: Bọc trong key "data" để match với Frontend Laravel cũ
+        return Response({
+            "data": serializer.data
         }, status=status.HTTP_200_OK)
