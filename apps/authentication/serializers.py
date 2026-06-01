@@ -1,3 +1,4 @@
+from django.contrib.auth.hashers import make_password
 from rest_framework import serializers
 from apps.authentication.models import Users
 
@@ -14,3 +15,26 @@ class LoginRequestSerializer(serializers.Serializer):
     """Serializer bắt đúng cấu trúc LoginRequest từ Frontend gửi lên"""
     email = serializers.EmailField()
     password = serializers.CharField(write_only=True)
+
+class UserSaveSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Users
+        # Các trường dữ liệu mà Form Frontend sẽ gửi lên khi Thêm hoặc Sửa
+        fields = ['email', 'password', 'full_name', 'role', 'status']
+        extra_kwargs = {
+            'password': {'write_only': True, 'required': False} # Giữ bí mật password, không bắt buộc truyền lúc Sửa
+        }
+
+    def create(self, validated_data):
+        # 🛠️ MẠ SÁT BẢO MẬT: Mã hóa mật khẩu trước khi lưu khi TẠO MỚI
+        if 'password' in validated_data:
+            validated_data['password'] = make_password(validated_data['password'])
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        # Nếu lúc SỬA Admin có nhập mật khẩu mới -> Mã hóa luôn, nếu trống -> Giữ nguyên mk cũ
+        if 'password' in validated_data and validated_data['password']:
+            validated_data['password'] = make_password(validated_data['password'])
+        else:
+            validated_data.pop('password', None) # Không sửa mật khẩu nếu FE không truyền lên
+        return super().update(instance, validated_data)
