@@ -1,4 +1,5 @@
 from django.db import models
+from apps.authentication.models import Users
 
 class Attachments(models.Model):
     id = models.BigAutoField(primary_key=True)
@@ -28,10 +29,10 @@ class AuditLogs(models.Model):
 
 class Categories(models.Model):
     id = models.BigAutoField(primary_key=True)
-    category_name = models.CharField(max_length=255, db_collation='SQL_Latin1_General_CP1_CI_AS')
     description = models.TextField(db_collation='SQL_Latin1_General_CP1_CI_AS', blank=True, null=True)
     created_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField(blank=True, null=True)
+    category_name = models.CharField(max_length=255, unique=True, db_collation='SQL_Latin1_General_CP1_CI_AS')
 
     class Meta:
         managed = False
