@@ -87,7 +87,7 @@ DATABASES = {
         'ENGINE': 'mssql',
         'NAME': 'UITie_Python',                                 
         'USER': 'sa',                                    
-        'PASSWORD': 'T@oLaPassWord123',                  
+        'PASSWORD': os.getenv('DB_PASSWORD', 'T@oLaPassWord123'),                  
         'HOST': '127.0.0.1',                             
         'PORT': '1433',                                  
         'OPTIONS': {
