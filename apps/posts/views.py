@@ -54,3 +54,46 @@ class PostAdminListAPIView(APIView):
 
         serializer = PostAdminResponseSerializer(posts, many=True)
         return Response({"data": serializer.data}, status=status.HTTP_200_OK)
+    
+# 5. API XỬ LÝ DUYỆT/TỪ CHỐI BÀI VIẾT
+class PostValidateAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def put(self, request, pk):
+        # 1. PHÂN QUYỀN: Chỉ Admin/Super Admin mới được vào phòng kiểm duyệt
+        if request.user.role not in ['Super Admin', 'Admin']:
+            return Response({"detail": "Bạn không có quyền!"}, status=status.HTTP_403_FORBIDDEN)
+        
+        # 2. TÌM BÀI VIẾT: Check xem bài viết cần duyệt có tồn tại không
+        try:
+            post = Posts.objects.get(pk=pk)
+        except Posts.DoesNotExist:
+            return Response({"detail": "Không tìm thấy bài viết!"}, status=status.HTTP_404_NOT_FOUND)
+        
+        # 3. BẮT DỮ LIỆU TỪ FRONTEND: Lấy trạng thái và lý do từ body gửi lên
+        status_moi = request.data.get('status')
+        reject_reason = request.data.get('reject_reason')
+
+        if not status_moi:
+            return Response({"detail": "Thiếu trạng thái kiểm duyệt (status)!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # 4. XỬ LÝ ĐỔI TRẠNG THÁI PHÙ HỢP: Chấp nhận cả chữ hoa chữ thường từ FE gửi lên
+        if status_moi.lower() in ['accepted', 'approved']:
+            post.status = 'Accepted'
+            post.reject_reason = None # Duyệt thành công thì xóa lý do từ chối cũ
+            
+        elif status_moi.lower() in ['rejected', 'disapproved']:
+            post.status = 'Rejected'
+            # Nếu FE không truyền lý do, lấy lý do mặc định chuẩn chỉ
+            post.reject_reason = reject_reason if reject_reason else 'Bài viết vi phạm tiêu chuẩn cộng đồng.'
+            
+        else:
+            # Phòng hờ trường hợp Frontend gửi trạng thái khác (như Pending...)
+            post.status = status_moi
+
+        # Lưu cập nhật xuống SQL Server
+        post.save()
+        
+        serializer = PostAdminResponseSerializer(post)
+        return Response({"data": serializer.data}, status=status.HTTP_200_OK)
