@@ -2,6 +2,7 @@
 from django.urls import path
 from apps.authentication.views import LoginAPIView, UserListAPIView, UserDetailAPIView
 from apps.authentication.views import LoginAPIView, UserListAPIView, UserDetailAPIView, UserLockAPIView, UserUnlockAPIView
+from apps.posts.views import PostAdminListAPIView, PostValidateAPIView
 
 urlpatterns = [
     # 1. Đường dẫn Đăng nhập
@@ -22,4 +23,16 @@ urlpatterns = [
     # 5. Đường dẫn mở khóa tài khoản (chỉ cập nhật status thành 'Active')
     path('super-admin/user/<int:pk>/unlock', UserUnlockAPIView.as_view(), name='super_admin_user_unlock_api'),
     path('admin/user/<int:pk>/unlock', UserUnlockAPIView.as_view(), name='admin_user_unlock_api'),
+
+    # 6. Đường dẫn lấy danh sách bài viết dành cho Admin/Super Admin
+    path('super-admin/post', PostAdminListAPIView.as_view(), name='super_admin_post_api'),
+    path('admin/post', PostAdminListAPIView.as_view(), name='admin_post_api'),
+
+    # 7. Tuyến đường Lấy danh sách bài viết
+    path('super-admin/post', PostAdminListAPIView.as_view(), name='super_admin_post_api'),
+    path('admin/post', PostAdminListAPIView.as_view(), name='admin_post_api'),
+    
+    # 8. ĐƯỜNG DẪN KIỂM DUYỆT BÀI VIẾT
+    path('super-admin/post/<int:pk>/validate', PostValidateAPIView.as_view(), name='super_admin_post_validate_api'),
+    path('admin/post/<int:pk>/validate', PostValidateAPIView.as_view(), name='admin_post_validate_api'),
 ]
