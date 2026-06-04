@@ -1,5 +1,5 @@
 # apps/authentication/urls.py
-from django.urls import path
+from django.urls import include, path
 from apps.authentication.views import LoginAPIView, UserListAPIView, UserDetailAPIView
 from apps.authentication.views import LoginAPIView, UserListAPIView, UserDetailAPIView, UserLockAPIView, UserUnlockAPIView
 from apps.posts.views import PostAdminListAPIView, PostValidateAPIView
@@ -35,4 +35,7 @@ urlpatterns = [
     # 8. ĐƯỜNG DẪN KIỂM DUYỆT BÀI VIẾT
     path('super-admin/post/<int:pk>/validate', PostValidateAPIView.as_view(), name='super_admin_post_validate_api'),
     path('admin/post/<int:pk>/validate', PostValidateAPIView.as_view(), name='admin_post_validate_api'),
+
+    # 9.
+    path('posts/', include('apps.posts.urls')),
 ]

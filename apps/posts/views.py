@@ -97,3 +97,220 @@ class PostValidateAPIView(APIView):
         
         serializer = PostAdminResponseSerializer(post)
         return Response({"data": serializer.data}, status=status.HTTP_200_OK)
+
+# 6. Serializer cho luồng Feed (Bảng tin)
+class PostFeedSerializer(serializers.ModelSerializer):
+    author = UserNestedSerializer(source='user', read_only=True)
+    category = CategoryNestedSerializer(read_only=True)
+    attachments = serializers.SerializerMethodField()
+    likes = serializers.SerializerMethodField()
+    comments = serializers.SerializerMethodField()
+    parent_post = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Posts
+        fields = ['id', 'author', 'category', 'content', 'visibility', 'status', 'is_edited', 'created_at', 'updated_at', 'attachments', 'likes', 'comments', 'parent_post']
+
+    def get_attachments(self, obj):
+        from apps.posts.models import PostAttachments, Attachments
+        attachment_ids = PostAttachments.objects.filter(post=obj).values_list('attachment_id', flat=True)
+        attachments = Attachments.objects.filter(id__in=attachment_ids)
+        return [
+            {
+                "id": att.id,
+                "file_url": att.file_url,
+                "view_url": att.file_url,
+                "file_type": att.file_type,
+                "file_name": att.file_url.split('/')[-1] if att.file_url else ""
+            }
+            for att in attachments
+        ]
+
+    def get_likes(self, obj):
+        from apps.posts.models import Likes
+        likes = Likes.objects.filter(post=obj)
+        return [{"user_id": like.user_id} for like in likes]
+
+    def get_comments(self, obj):
+        from apps.posts.models import Comments
+        return Comments.objects.filter(post=obj).count()
+
+    def get_parent_post(self, obj):
+        if obj.parent_post:
+            return PostFeedSerializer(obj.parent_post).data
+        return None
+
+# 7. Lấy danh sách Feed và Đăng bài viết
+class PostListCreateAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        scope = request.query_params.get('scope', 'all')
+        
+        if scope == 'following':
+            from apps.posts.models import Follows
+            following_ids = Follows.objects.filter(follower=request.user).values_list('following_id', flat=True)
+            posts = Posts.objects.filter(
+                status__iexact='accepted',
+                user_id__in=following_ids
+            ).order_by('-id')
+        else:
+            # Lấy tất cả các bài viết công khai đã được Admin duyệt
+            posts = Posts.objects.filter(status__iexact='accepted').order_by('-id')
+
+        serializer = PostFeedSerializer(posts, many=True)
+        return Response({"data": serializer.data}, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        category_id = request.data.get('category_id')
+        content = request.data.get('content')
+        visibility = request.data.get('visibility', 'Public')
+        
+        if not category_id:
+            return Response({"detail": "Category là bắt buộc!"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        try:
+            category = Categories.objects.get(pk=category_id)
+        except Categories.DoesNotExist:
+            return Response({"detail": "Category không tồn tại!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        post = Posts.objects.create(
+            user=request.user,
+            category=category,
+            content=content,
+            visibility=visibility,
+            status='Pending', # Mặc định bài đăng cần Admin duyệt
+            is_edited=False
+        )
+        
+        attachments_data = request.data.get('attachments', [])
+        from apps.posts.models import Attachments, PostAttachments
+        if attachments_data:
+            for att_data in attachments_data:
+                att = Attachments.objects.create(
+                    file_url=att_data.get('file_url'),
+                    file_type=att_data.get('file_type')
+                )
+                PostAttachments.objects.create(post=post, attachment=att)
+
+        return Response({
+            "status": True,
+            "data": PostFeedSerializer(post).data
+        }, status=status.HTTP_201_CREATED)
+
+# 8. API Sửa, Xóa bài viết
+class PostDetailAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self, pk, user):
+        try:
+            post = Posts.objects.get(pk=pk)
+            if post.user != user:
+                return None, Response(
+                    {"detail": "Bạn không có quyền chỉnh sửa hoặc xóa bài viết này!"}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            return post, None
+        except Posts.DoesNotExist:
+            return None, Response(
+                {"detail": "Không tìm thấy bài viết!"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+    def put(self, request, pk):
+        post, error_response = self.get_object(pk, request.user)
+        if error_response: return error_response
+
+        category_id = request.data.get('category_id')
+        if category_id:
+            try:
+                category = Categories.objects.get(pk=category_id)
+                post.category = category
+            except Categories.DoesNotExist:
+                pass
+        
+        content = request.data.get('content')
+        if content is not None:
+            post.content = content
+            post.is_edited = True
+            
+        visibility = request.data.get('visibility')
+        if visibility:
+            post.visibility = visibility
+
+        post.save()
+
+        attachments_data = request.data.get('attachments')
+        if attachments_data is not None:
+            from apps.posts.models import Attachments, PostAttachments
+            PostAttachments.objects.filter(post=post).delete()
+            for att_data in attachments_data:
+                att = Attachments.objects.create(
+                    file_url=att_data.get('file_url'),
+                    file_type=att_data.get('file_type')
+                )
+                PostAttachments.objects.create(post=post, attachment=att)
+
+        return Response({
+            "status": True,
+            "data": PostFeedSerializer(post).data
+        }, status=status.HTTP_200_OK)
+
+    def delete(self, request, pk):
+        post, error_response = self.get_object(pk, request.user)
+        if error_response: return error_response
+
+        post.delete()
+        return Response({
+            "status": True,
+            "data": {"detail": "Xóa bài viết thành công"}
+        }, status=status.HTTP_200_OK)
+
+# 9. API Like/Bỏ Like
+class PostLikeAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            post = Posts.objects.get(pk=pk)
+        except Posts.DoesNotExist:
+            return Response({"detail": "Không tìm thấy bài viết!"}, status=status.HTTP_404_NOT_FOUND)
+            
+        from apps.posts.models import Likes
+        like, created = Likes.objects.get_or_create(post=post, user=request.user)
+        
+        if not created:
+            like.delete()
+            return Response({"data": {"detail": "Đã bỏ thích", "liked": False}}, status=status.HTTP_200_OK)
+            
+        return Response({"data": {"detail": "Đã thích", "liked": True}}, status=status.HTTP_200_OK)
+
+# 10. API Chia sẻ bài viết
+class PostShareAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            parent_post = Posts.objects.get(pk=pk)
+        except Posts.DoesNotExist:
+            return Response({"detail": "Không tìm thấy bài viết!"}, status=status.HTTP_404_NOT_FOUND)
+            
+        content = request.data.get('content', '')
+        
+        new_post = Posts.objects.create(
+            user=request.user,
+            category=parent_post.category,
+            parent_post=parent_post,
+            content=content,
+            visibility='Public',
+            status='Accepted',
+            is_edited=False
+        )
+        
+        return Response({
+            "data": PostFeedSerializer(new_post).data
+        }, status=status.HTTP_201_CREATED)
