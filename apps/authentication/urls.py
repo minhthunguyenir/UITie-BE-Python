@@ -1,7 +1,7 @@
 # apps/authentication/urls.py
 from django.urls import include, path
 from apps.authentication.views import LoginAPIView, UserListAPIView, UserDetailAPIView
-from apps.authentication.views import LoginAPIView, UserListAPIView, UserDetailAPIView, UserLockAPIView, UserUnlockAPIView
+from apps.authentication.views import LoginAPIView, UserListAPIView, UserDetailAPIView, UserLockAPIView, UserUnlockAPIView, UserProfileAPIView, UserFollowAPIView
 from apps.posts.views import PostAdminListAPIView, PostValidateAPIView
 
 urlpatterns = [
@@ -36,6 +36,11 @@ urlpatterns = [
     path('super-admin/post/<int:pk>/validate', PostValidateAPIView.as_view(), name='super_admin_post_validate_api'),
     path('admin/post/<int:pk>/validate', PostValidateAPIView.as_view(), name='admin_post_validate_api'),
 
-    # 9.
+    # 9. Profile & Follow
+    path('profile', UserProfileAPIView.as_view(), name='profile_current_api'),
+    path('profile/<int:pk>', UserProfileAPIView.as_view(), name='profile_detail_api'),
+    path('profile/<int:pk>/follow', UserFollowAPIView.as_view(), name='user_follow_api'),
+
+    # 10.
     path('posts/', include('apps.posts.urls')),
 ]

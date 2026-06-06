@@ -7,7 +7,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.hashers import check_password
 from apps.authentication.models import Users
 from apps.authentication.serializers import LoginRequestSerializer, UserResponseSerializer
-from apps.authentication.serializers import UserResponseSerializer, UserSaveSerializer
+from apps.authentication.serializers import UserResponseSerializer, UserSaveSerializer, UserProfileSerializer
+from django.utils import timezone
 
 class LoginAPIView(APIView):
     def post(self, request):
@@ -152,6 +153,42 @@ class UserDetailAPIView(APIView):
             }, status=status.HTTP_200_OK)
             
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class UserProfileAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk=None):
+        try:
+            user = Users.objects.get(pk=pk) if pk else request.user
+        except Users.DoesNotExist:
+            return Response({"detail": "Không tìm thấy người dùng!"}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = UserProfileSerializer(user, context={'request': request})
+        return Response({"data": serializer.data}, status=status.HTTP_200_OK)
+
+class UserFollowAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        try:
+            target_user = Users.objects.get(pk=pk)
+        except Users.DoesNotExist:
+            return Response({"detail": "Không tìm thấy người dùng!"}, status=status.HTTP_404_NOT_FOUND)
+            
+        if target_user == request.user:
+            return Response({"detail": "Bạn không thể tự theo dõi chính mình!"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        from apps.posts.models import Follows
+        follow = Follows.objects.filter(follower=request.user, following=target_user).first()
+        
+        if follow:
+            follow.delete()
+            return Response({"data": {"detail": "Đã bỏ theo dõi", "is_following": False}}, status=status.HTTP_200_OK)
+        else:
+            Follows.objects.create(follower=request.user, following=target_user, created_at=timezone.now(), updated_at=timezone.now())
+            return Response({"data": {"detail": "Đã theo dõi", "is_following": True}}, status=status.HTTP_200_OK)
     
 class UserLockAPIView(APIView):
     authentication_classes = [JWTAuthentication]

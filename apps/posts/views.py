@@ -147,8 +147,14 @@ class PostListCreateAPIView(APIView):
 
     def get(self, request):
         scope = request.query_params.get('scope', 'all')
+        user_id = request.query_params.get('user_id')
         
-        if scope == 'following':
+        if user_id:
+            posts = Posts.objects.filter(
+                status__iexact='accepted',
+                user_id=user_id
+            ).order_by('-id')
+        elif scope == 'following':
             from apps.posts.models import Follows
             following_ids = Follows.objects.filter(follower=request.user).values_list('following_id', flat=True)
             posts = Posts.objects.filter(
@@ -218,6 +224,18 @@ class PostDetailAPIView(APIView):
                 {"detail": "Không tìm thấy bài viết!"}, 
                 status=status.HTTP_404_NOT_FOUND
             )
+
+    def get(self, request, pk):
+        try:
+            post = Posts.objects.get(pk=pk)
+            # Chỉ cho phép xem nếu bài đã được duyệt hoặc người đang xem chính là tác giả
+            if post.status != 'Accepted' and post.user != request.user:
+                return Response({"detail": "Bài viết chưa được duyệt hoặc bạn không có quyền xem!"}, status=status.HTTP_403_FORBIDDEN)
+        except Posts.DoesNotExist:
+            return Response({"detail": "Không tìm thấy bài viết!"}, status=status.HTTP_404_NOT_FOUND)
+            
+        serializer = PostFeedSerializer(post)
+        return Response({"data": serializer.data}, status=status.HTTP_200_OK)
 
     def put(self, request, pk):
         post, error_response = self.get_object(pk, request.user)
