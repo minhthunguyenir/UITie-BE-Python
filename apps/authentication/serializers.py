@@ -46,13 +46,14 @@ class UserProfileSerializer(serializers.ModelSerializer):
     following_count = serializers.SerializerMethodField()
     is_following = serializers.SerializerMethodField()
     is_me = serializers.SerializerMethodField()
+    match_score = serializers.SerializerMethodField()
 
     class Meta:
         model = Users
         fields = [
             'id', 'email', 'full_name', 'mssv', 'phone_number', 
             'role', 'status', 'faculty', 'class_name', 'academic_year', 
-            'created_at', 'updated_at', 'followers_count', 'following_count', 'is_following', 'is_me'
+            'created_at', 'updated_at', 'followers_count', 'following_count', 'is_following', 'is_me', 'match_score'
         ]
 
     def get_followers_count(self, obj):
@@ -77,3 +78,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
         if request and request.user.is_authenticated:
             return request.user == obj
         return False
+
+    def get_match_score(self, obj):
+        # Lấy giá trị match_score được annotate từ view, nếu không có thì trả về 0 an toàn
+        return getattr(obj, 'match_score', 0)

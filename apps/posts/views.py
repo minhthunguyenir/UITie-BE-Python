@@ -467,3 +467,28 @@ class CommentDetailAPIView(APIView):
             "status": True,
             "data": {"detail": "Xóa bình luận thành công"}
         }, status=status.HTTP_200_OK)
+
+class CategoryTrendingAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from django.db.models import Count
+        
+        # 1. Join qua bảng Posts, đếm số lượng bài viết 'Accepted' cho từng danh mục
+        trending = Posts.objects.filter(status__iexact='accepted') \
+            .values('category__id', 'category__category_name', 'category__description') \
+            .annotate(post_count=Count('id')) \
+            .order_by('-post_count')[:5]
+        
+        # 2. Đóng gói dữ liệu trả về cho Frontend
+        data = [
+            {
+                "id": item['category__id'],
+                "category_name": item['category__category_name'],
+                "description": item['category__description'],
+                "post_count": item['post_count']
+            } for item in trending
+        ]
+        
+        return Response({"data": data}, status=status.HTTP_200_OK)

@@ -1,8 +1,8 @@
 # apps/authentication/urls.py
 from django.urls import include, path
 from apps.authentication.views import LoginAPIView, UserListAPIView, UserDetailAPIView
-from apps.authentication.views import LoginAPIView, UserListAPIView, UserDetailAPIView, UserLockAPIView, UserUnlockAPIView, UserProfileAPIView, UserFollowAPIView, UserSearchAPIView
-from apps.posts.views import PostAdminListAPIView, PostValidateAPIView
+from apps.authentication.views import LoginAPIView, UserListAPIView, UserDetailAPIView, UserLockAPIView, UserUnlockAPIView, UserProfileAPIView, UserFollowAPIView, UserSearchAPIView, UserSuggestedFollowsAPIView
+from apps.posts.views import PostAdminListAPIView, PostValidateAPIView, CategoryTrendingAPIView
 
 urlpatterns = [
     # 1. Đường dẫn Đăng nhập
@@ -46,4 +46,8 @@ urlpatterns = [
 
     # 11. Tìm kiếm người dùng
     path('search/user', UserSearchAPIView.as_view(), name='user_search_api'),
+
+    # 12. Trending Categories & Suggested Follows cho Sidebar
+    path('categories/trending', CategoryTrendingAPIView.as_view(), name='category_trending_api'),
+    path('users/suggested-follows', UserSuggestedFollowsAPIView.as_view(), name='user_suggested_follows_api'),
 ]

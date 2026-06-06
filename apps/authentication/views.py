@@ -281,3 +281,33 @@ class UserSearchAPIView(APIView):
             
         serializer = UserResponseSerializer(users, many=True)
         return Response({"data": serializer.data}, status=status.HTTP_200_OK)
+
+class UserSuggestedFollowsAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+        from apps.posts.models import Follows
+        from django.db.models import Case, When, Value, IntegerField
+        
+        # 1. Lấy danh sách ID những người mà user đang đăng nhập ĐÃ follow
+        following_ids = Follows.objects.filter(follower=user).values_list('following_id', flat=True)
+        
+        # 2. Loại trừ bản thân và những người đã follow, chỉ lấy tài khoản đang hoạt động
+        users = Users.objects.exclude(id=user.id).exclude(id__in=following_ids).filter(status='Active')
+        
+        # 3. Chấm điểm tương đồng (Khoa +2đ, Khóa +1đ, Lớp +1đ)
+        score = Value(0, output_field=IntegerField())
+        if user.faculty:
+            score += Case(When(faculty=user.faculty, then=Value(1)), default=Value(0), output_field=IntegerField())
+        if user.academic_year:
+            score += Case(When(academic_year=user.academic_year, then=Value(1)), default=Value(0), output_field=IntegerField())
+        if user.class_name:
+            score += Case(When(class_name=user.class_name, then=Value(1)), default=Value(0), output_field=IntegerField())
+            
+        # 4. Sắp xếp theo điểm giảm dần, lấy top 5
+        users = users.annotate(match_score=score).order_by('-match_score', '-id')[:5]
+        
+        serializer = UserProfileSerializer(users, many=True, context={'request': request})
+        return Response({"data": serializer.data}, status=status.HTTP_200_OK)
