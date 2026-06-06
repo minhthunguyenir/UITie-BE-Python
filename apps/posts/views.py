@@ -148,22 +148,27 @@ class PostListCreateAPIView(APIView):
     def get(self, request):
         scope = request.query_params.get('scope', 'all')
         user_id = request.query_params.get('user_id')
+        keyword = request.query_params.get('keyword')
         
+        # Chỉ lấy bài viết đã duyệt
+        posts = Posts.objects.filter(status__iexact='accepted')
+
         if user_id:
-            posts = Posts.objects.filter(
-                status__iexact='accepted',
-                user_id=user_id
-            ).order_by('-id')
+            posts = posts.filter(user_id=user_id)
         elif scope == 'following':
             from apps.posts.models import Follows
             following_ids = Follows.objects.filter(follower=request.user).values_list('following_id', flat=True)
-            posts = Posts.objects.filter(
-                status__iexact='accepted',
-                user_id__in=following_ids
-            ).order_by('-id')
-        else:
-            # Lấy tất cả các bài viết công khai đã được Admin duyệt
-            posts = Posts.objects.filter(status__iexact='accepted').order_by('-id')
+            posts = posts.filter(user_id__in=following_ids)
+            
+        if keyword:
+            from django.db.models import Q
+            posts = posts.filter(
+                Q(content__icontains=keyword) |
+                Q(user__full_name__icontains=keyword) |
+                Q(category__category_name__icontains=keyword)
+            )
+
+        posts = posts.order_by('-id')
 
         serializer = PostFeedSerializer(posts, many=True)
         return Response({"data": serializer.data}, status=status.HTTP_200_OK)

@@ -1,7 +1,7 @@
 # apps/authentication/urls.py
 from django.urls import include, path
 from apps.authentication.views import LoginAPIView, UserListAPIView, UserDetailAPIView
-from apps.authentication.views import LoginAPIView, UserListAPIView, UserDetailAPIView, UserLockAPIView, UserUnlockAPIView, UserProfileAPIView, UserFollowAPIView
+from apps.authentication.views import LoginAPIView, UserListAPIView, UserDetailAPIView, UserLockAPIView, UserUnlockAPIView, UserProfileAPIView, UserFollowAPIView, UserSearchAPIView
 from apps.posts.views import PostAdminListAPIView, PostValidateAPIView
 
 urlpatterns = [
@@ -43,4 +43,7 @@ urlpatterns = [
 
     # 10.
     path('posts/', include('apps.posts.urls')),
+
+    # 11. Tìm kiếm người dùng
+    path('search/user', UserSearchAPIView.as_view(), name='user_search_api'),
 ]
