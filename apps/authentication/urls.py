@@ -1,8 +1,21 @@
-# apps/authentication/urls.py
+"""
+Routing cho module Authentication.
+
+Tập trung các endpoint liên quan tới quản lý người dùng và các
+API hỗ trợ cho giao diện Admin/Super-Admin.
+"""
+
 from django.urls import include, path
-from apps.authentication.views import LoginAPIView, UserListAPIView, UserDetailAPIView
-from apps.authentication.views import LoginAPIView, UserListAPIView, UserDetailAPIView, UserLockAPIView, UserUnlockAPIView, UserProfileAPIView, UserFollowAPIView, UserSearchAPIView, UserSuggestedFollowsAPIView
-from apps.posts.views import PostAdminListAPIView, PostValidateAPIView, CategoryTrendingAPIView, DashboardStatsAPIView
+from apps.authentication.views import (
+    LoginAPIView, UserListAPIView, UserDetailAPIView,
+    UserLockAPIView, UserUnlockAPIView, UserProfileAPIView,
+    UserFollowAPIView, UserSearchAPIView, UserSuggestedFollowsAPIView,
+)
+from apps.posts.views import (
+    PostAdminListAPIView, PostValidateAPIView,
+    CategoryTrendingAPIView, DashboardStatsAPIView,
+)
+
 
 urlpatterns = [
     # 1. Đường dẫn Đăng nhập

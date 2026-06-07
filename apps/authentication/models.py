@@ -1,6 +1,14 @@
 from django.db import models
 
 class Users(models.Model):
+    """
+    Mô hình người dùng cho hệ thống quản lý giáo dục.
+    
+    Lưu trữ thông tin xác thực, thông tin cá nhân và metadata của người dùng.
+    Hỗ trợ các vai trò khác nhau (sinh viên, giáo viên, quản trị viên) với
+    cơ chế kích hoạt/vô hiệu hóa tài khoản.
+    """
+    
     id = models.BigAutoField(primary_key=True)
     email = models.CharField(unique=True, max_length=255, db_collation='SQL_Latin1_General_CP1_CI_AS')
     password = models.CharField(max_length=255, db_collation='SQL_Latin1_General_CP1_CI_AS')
@@ -16,24 +24,44 @@ class Users(models.Model):
     remember_token = models.CharField(max_length=100, db_collation='SQL_Latin1_General_CP1_CI_AS', blank=True, null=True)
     created_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField(blank=True, null=True)
-    USERNAME_FIELD = 'email'          # Chỉ định trường 'email' làm tên đăng nhập chính (thay cho 'username' mặc định của Django)
-    REQUIRED_FIELDS = []              # Các trường bắt buộc phải nhập thêm khi tạo tài khoản bằng lệnh cmd (mình để trống là ok)
+    
+    # Sử dụng email thay cho username để xác thực (tuân theo RFC 5321)
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = []
 
     @property
     def is_authenticated(self):
-        """Trả về True để báo cho Django biết: Đây là tài khoản ĐÃ ĐĂNG NHẬP THÀNH CÔNG"""
+        """
+        Xác định tài khoản đã được xác thực hay chưa.
+        
+        Returns:
+            bool: Luôn trả về True nếu object Users được tạo (có record trong DB).
+                  Điều này giúp Django framework nhận diện user đã đăng nhập.
+        """
         return True
 
     @property
     def is_anonymous(self):
-        """Trả về False để khẳng định: Đây là người dùng thật, KHÔNG PHẢI KHÁCH ẨN DANH"""
+        """
+        Xác định đây có phải là tài khoản ẩn danh (khách) hay không.
+        
+        Returns:
+            bool: Luôn trả về False vì mọi Users object đều là user thật,
+                  không phải khách ẩn danh.
+        """
         return False
 
     @property
     def is_active(self):
         """
-        Bắt bài hệ thống: Tận dụng luôn cái trường 'status' của nhóm Thư.
-        Nếu trạng thái là 'Active' thì trả về True (cho phép hoạt động), ngược lại thì khóa.
+        Kiểm tra tài khoản có đang hoạt động hay bị khóa.
+        
+        Phương pháp này cho phép quản trị viên kiểm soát quyền truy cập
+        bằng cách cập nhật field 'status'. Nếu status là 'Active',
+        user được phép đăng nhập và sử dụng hệ thống; nếu không sẽ bị khóa.
+        
+        Returns:
+            bool: True nếu status = 'Active', False nếu không.
         """
         return self.status == 'Active'
     
