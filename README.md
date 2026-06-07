@@ -1,84 +1,110 @@
-# UITie-BE-Python
-# UITie - Backend API (Python/Django) 🚀
+# UITie - Mạng Xã Hội Nội Bộ Sinh Viên (Campus Social Network)
 
-Hệ thống quản lý thông tin mạng xã hội (SMMS) - Đồ án môn học.
-Backend được xây dựng bằng Python (Django REST Framework) và SQL Server.
-
-## 🛠️ Công nghệ sử dụng
-* **Ngôn ngữ:** Python 3.10+
-* **Framework:** Django & Django REST Framework (DRF)
-* **Cơ sở dữ liệu:** Microsoft SQL Server (chạy qua Docker)
-* **Xác thực:** JWT (JSON Web Tokens)
+UITie là hệ thống mạng xã hội nội bộ dành riêng cho môi trường đại học, hỗ trợ sinh viên kết nối, chia sẻ tài liệu, cập nhật hoạt động Đoàn - Hội và thảo luận học tập. Hệ thống được trang bị phân hệ **Admin Console** toàn diện giúp quản trị viên kiểm duyệt nội dung thông minh, quản lý trạng thái người dùng và theo dõi sức khỏe hệ thống qua Dashboard số liệu thời gian thực.
 
 ---
 
-## ⚙️ Hướng dẫn Cài đặt & Setup Môi trường
+## Công Nghệ Sử Dụng
 
-### 1. Yêu cầu hệ thống trước khi cài đặt (Prerequisites)
-* Đã cài đặt **Python 3.10+**.
-* Đã cài đặt **Docker Desktop** (để chạy SQL Server cục bộ).
-* Cài đặt **ODBC Driver 18 for SQL Server** (Bắt buộc để kết nối CSDL):
-  * **🖥️ Windows:** Tải và cài đặt file `.exe` trực tiếp từ [Trang chủ Microsoft](https://learn.microsoft.com/en-us/sql/connect/odbc/download-odbc-driver-for-sql-server).
-  * **🍎 macOS:** Mở Terminal và chạy lệnh Homebrew:
-    ```bash
-    brew tap microsoft/mssql-release [https://github.com/Microsoft/homebrew-mssql-release](https://github.com/Microsoft/homebrew-mssql-release)
-    brew update
-    brew install msodbcsql18 mssql-tools18 unixodbc
-    ```
+### Backend
+* **Ngôn ngữ:** Python 3.11+
+* **Framework:** Django & Django REST Framework (DRF)
+* **Cơ sở dữ liệu:** Microsoft SQL Server (kết nối qua kết cấu Django ORM)
+* **Xác thực:** JWT (JSON Web Token) qua `rest_framework_simplejwt`
 
-### 2. Tải dự án và Khởi tạo môi trường ảo
+### Frontend
+* **Ngôn ngữ:** TypeScript
+* **Framework:** React & TanStack Start / Router
+* **Quản lý State & Call API:** TanStack Query (`@tanstack/react-query`)
+* **Styling:** TailwindCSS
 
-Mở Terminal (macOS) hoặc Command Prompt/PowerShell (Windows) và chạy:
+---
 
+## 📋 Yêu Cầu Hệ Thống (Prerequisites)
+
+Trước khi tiến hành cài đặt, hãy đảm bảo máy tính đã cài đặt các công cụ sau:
+* **Python** (Phiên bản >= 3.11)
+* **Node.js** (Phiên bản >= 18.x) & **npm**
+* **Microsoft SQL Server** (2019 hoặc mới hơn)
+* **Microsoft ODBC Driver for SQL Server** (Thư viện kết nối bắt buộc cho Python)
+
+---
+
+## 🚀 Hướng Dẫn Cài Đặt Chi Tiết
+
+### 1. Tải Mã Nguồn Về Máy
 ```bash
-# Clone dự án về máy và chuyển sang nhánh phát triển
-git clone [https://github.com/minhthunguyenir/UITie-BE-Python.git](https://github.com/minhthunguyenir/UITie-BE-Python.git)
-cd UITie-BE-Python
-git checkout develop
-
-#Kích hoạt môi trường ảo (Virtual Environment):
-
-🍎 Dành cho macOS:
-
-python3 -m venv .venv
-source .venv/bin/activate
-
-🖥️ Dành cho Windows:
-
-DOS
-python -m venv .venv
-.venv\Scripts\activate
-
+git clone [https://github.com/your-username/UITie.git](https://github.com/your-username/UITie.git)
+cd UITie
 ```
-### 3. Cài đặt Thư viện và Biến môi trường
-Sau khi đầu dòng lệnh xuất hiện chữ (.venv), tiến hành cài đặt các gói phụ thuộc:
 
+### 2. Cấu Hình & Chạy Backend (Django)
+
+**Bước 2.1: Tạo và kích hoạt môi trường ảo (Virtual Environment)**
+* **Trên macOS / Linux:**
+  ```bash
+  python3 -m venv venv
+  source venv/bin/activate
+  ```
+* **Trên Windows:**
+  ```cmd
+  python -m venv venv
+  .\\venv\\Scripts\\activate
+  ```
+
+**Bước 2.2: Cài đặt các thư viện phụ thuộc**
+```bash
+pip install --upgrade pip
 pip install -r requirements.txt
+```
 
-Cấu hình file .env: Copy nội dung từ file .env.example và tạo một file mới tên là .env nằm cùng thư mục gốc (ngang hàng manage.py).
+**Bước 2.3: Cấu hình file môi trường `.env`**
+Tạo file `.env` tại thư mục gốc của Backend (ngang hàng với `manage.py`) dựa trên file `.env.example`:
+```env
+DEBUG=True
+SECRET_KEY=django-insecure-your-custom-secret-key-uitie
+DB_NAME=UITie_DB
+DB_USER=sa
+DB_PASSWORD=YourStrongPassword123
+DB_HOST=127.0.0.1
+DB_PORT=1433
+```
 
-Mở file .env và điền mật khẩu SQL Server của máy bạn vào biến DB_PASSWORD.
+**Bước 2.4: Thực thi Khởi tạo Cơ sở dữ liệu (Migrations & Seed Data)**
+```bash
+# Tạo cấu trúc bảng trên SQL Server
+python manage.py migrate
 
+# (Tùy chọn) Chạy lệnh nạp dữ liệu mẫu sinh viên và bài viết nếu nhóm có viết lệnh seed
+python manage.py seed_data
+```
 
-### 4. Khởi tạo Cơ sở dữ liệu (SQL Server)
-Đảm bảo SQL Server đang chạy (thông qua Docker hoặc cài trực tiếp).
+**Bước 2.5: Khởi chạy Server Backend**
+```bash
+python manage.py runserver 0.0.0.0:8000
+```
+> Server Backend sẽ chạy tại cổng: `http://127.0.0.1:8000/`
 
-Dùng công cụ quản lý CSDL (VS Code mssql, SSMS, Azure Data Studio), kết nối bằng tài khoản sa.
+---
 
-Chạy lần lượt 3 file script trong thư mục database để dựng cấu trúc:
+### 3. Cấu Hình & Chạy Frontend (React / TanStack Start)
 
-01_UITie_Python_Schema.sql
+Mở một cửa sổ Terminal mới và di chuyển vào thư mục Frontend của dự án:
 
-02_UITie_Python_Security.sql
+**Bước 3.1: Cài đặt các gói thư viện Node Modules**
+```bash
+cd frontend
+npm install
+```
 
-03_UITie_Python_Permissions.sql
+**Bước 3.2: Cấu hình file môi trường Frontend**
+Tạo file `.env` tại thư mục gốc của Frontend:
+```env
+VITE_API_BASE_URL=[http://127.0.0.1:8000/api](http://127.0.0.1:8000/api)
+```
 
-### 🚀 Hướng dẫn Thực thi chương trình (Run Server)
-Tại thư mục gốc dự án (đã bật .venv), chạy lệnh sau để khởi động Backend:
-
-🍎 macOS: python3 manage.py runserver
-🖥️ Windows: python manage.py runserver
-
-API sẽ được phục vụ tại địa chỉ: http://127.0.0.1:8000/
-
-Dự án được phát triển bởi Nhóm UITie.
+**Bước 3.3: Khởi chạy Server Frontend ở chế độ Phát triển (Development)**
+```bash
+npm run dev
+```
+> Giao diện người dùng sẽ chạy tại cổng mặc định: `http://localhost:3000/`
