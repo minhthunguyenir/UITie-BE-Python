@@ -148,22 +148,27 @@ class PostListCreateAPIView(APIView):
     def get(self, request):
         scope = request.query_params.get('scope', 'all')
         user_id = request.query_params.get('user_id')
+        keyword = request.query_params.get('keyword')
         
+        # Chỉ lấy bài viết đã duyệt
+        posts = Posts.objects.filter(status__iexact='accepted')
+
         if user_id:
-            posts = Posts.objects.filter(
-                status__iexact='accepted',
-                user_id=user_id
-            ).order_by('-id')
+            posts = posts.filter(user_id=user_id)
         elif scope == 'following':
             from apps.posts.models import Follows
             following_ids = Follows.objects.filter(follower=request.user).values_list('following_id', flat=True)
-            posts = Posts.objects.filter(
-                status__iexact='accepted',
-                user_id__in=following_ids
-            ).order_by('-id')
-        else:
-            # Lấy tất cả các bài viết công khai đã được Admin duyệt
-            posts = Posts.objects.filter(status__iexact='accepted').order_by('-id')
+            posts = posts.filter(user_id__in=following_ids)
+            
+        if keyword:
+            from django.db.models import Q
+            posts = posts.filter(
+                Q(content__icontains=keyword) |
+                Q(user__full_name__icontains=keyword) |
+                Q(category__category_name__icontains=keyword)
+            )
+
+        posts = posts.order_by('-id')
 
         serializer = PostFeedSerializer(posts, many=True)
         return Response({"data": serializer.data}, status=status.HTTP_200_OK)
@@ -332,3 +337,158 @@ class PostShareAPIView(APIView):
         return Response({
             "data": PostFeedSerializer(new_post).data
         }, status=status.HTTP_201_CREATED)
+
+# 11. API Bình luận
+from apps.posts.models import Comments
+
+class CommentSerializer(serializers.ModelSerializer):
+    user = UserNestedSerializer(read_only=True)
+    attachments = serializers.SerializerMethodField()
+    parent_comment_id = serializers.ReadOnlyField()
+    post_id = serializers.ReadOnlyField()
+
+    class Meta:
+        model = Comments
+        fields = ['id', 'post_id', 'user', 'parent_comment_id', 'content', 'created_at', 'updated_at', 'attachments']
+        read_only_fields = ['id', 'user', 'created_at', 'updated_at']
+
+    def get_attachments(self, obj):
+        try:
+            from apps.posts.models import CommentAttachments, Attachments
+            attachment_ids = CommentAttachments.objects.filter(comment=obj).values_list('attachment_id', flat=True)
+            attachments = Attachments.objects.filter(id__in=attachment_ids)
+            return [
+                {
+                    "id": att.id,
+                    "file_url": att.file_url,
+                    "view_url": att.file_url,
+                    "file_type": att.file_type,
+                    "file_name": att.file_url.split('/')[-1] if att.file_url else ""
+                }
+                for att in attachments
+            ]
+        except Exception:
+            return []
+
+class CommentListCreateAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, post_id):
+        try:
+            post = Posts.objects.get(pk=post_id)
+        except Posts.DoesNotExist:
+            return Response({"detail": "Không tìm thấy bài viết!"}, status=status.HTTP_404_NOT_FOUND)
+            
+        comments = Comments.objects.filter(post=post).order_by('created_at')
+        serializer = CommentSerializer(comments, many=True)
+        return Response({"data": serializer.data}, status=status.HTTP_200_OK)
+
+    def post(self, request, post_id):
+        try:
+            post = Posts.objects.get(pk=post_id)
+        except Posts.DoesNotExist:
+            return Response({"detail": "Không tìm thấy bài viết!"}, status=status.HTTP_404_NOT_FOUND)
+            
+        content = request.data.get('content')
+        parent_comment_id = request.data.get('parent_comment_id')
+        attachments_data = request.data.get('attachments', [])
+        
+        if not content and not attachments_data:
+            return Response({"detail": "Nội dung hoặc file đính kèm là bắt buộc!"}, status=status.HTTP_400_BAD_REQUEST)
+            
+        parent_comment = None
+        if parent_comment_id:
+            try:
+                parent_comment = Comments.objects.get(pk=parent_comment_id, post=post)
+            except Comments.DoesNotExist:
+                return Response({"detail": "Bình luận cha không tồn tại!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        comment = Comments.objects.create(
+            post=post,
+            user=request.user,
+            parent_comment=parent_comment,
+            content=content
+        )
+        
+        if attachments_data:
+            try:
+                from apps.posts.models import Attachments, CommentAttachments
+                for att_data in attachments_data:
+                    att = Attachments.objects.create(
+                        file_url=att_data.get('file_url'),
+                        file_type=att_data.get('file_type')
+                    )
+                    CommentAttachments.objects.create(comment=comment, attachment=att)
+            except ImportError:
+                pass
+
+        return Response({
+            "status": True,
+            "data": CommentSerializer(comment).data
+        }, status=status.HTTP_201_CREATED)
+
+class CommentDetailAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self, pk, user):
+        try:
+            comment = Comments.objects.get(pk=pk)
+            if comment.user != user and user.role not in ['Admin', 'Super Admin']:
+                return None, Response({"detail": "Bạn không có quyền thao tác với bình luận này!"}, status=status.HTTP_403_FORBIDDEN)
+            return comment, None
+        except Comments.DoesNotExist:
+            return None, Response({"detail": "Không tìm thấy bình luận!"}, status=status.HTTP_404_NOT_FOUND)
+
+    def put(self, request, pk):
+        comment, error_response = self.get_object(pk, request.user)
+        if error_response: return error_response
+
+        if comment.user != request.user:
+            return Response({"detail": "Chỉ tác giả mới được sửa bình luận!"}, status=status.HTTP_403_FORBIDDEN)
+
+        content = request.data.get('content')
+        if content is not None:
+            comment.content = content
+            comment.save()
+
+        return Response({
+            "status": True,
+            "data": CommentSerializer(comment).data
+        }, status=status.HTTP_200_OK)
+
+    def delete(self, request, pk):
+        comment, error_response = self.get_object(pk, request.user)
+        if error_response: return error_response
+
+        comment.delete()
+        return Response({
+            "status": True,
+            "data": {"detail": "Xóa bình luận thành công"}
+        }, status=status.HTTP_200_OK)
+
+class CategoryTrendingAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from django.db.models import Count
+        
+        # 1. Join qua bảng Posts, đếm số lượng bài viết 'Accepted' cho từng danh mục
+        trending = Posts.objects.filter(status__iexact='accepted') \
+            .values('category__id', 'category__category_name', 'category__description') \
+            .annotate(post_count=Count('id')) \
+            .order_by('-post_count')[:5]
+        
+        # 2. Đóng gói dữ liệu trả về cho Frontend
+        data = [
+            {
+                "id": item['category__id'],
+                "category_name": item['category__category_name'],
+                "description": item['category__description'],
+                "post_count": item['post_count']
+            } for item in trending
+        ]
+        
+        return Response({"data": data}, status=status.HTTP_200_OK)
