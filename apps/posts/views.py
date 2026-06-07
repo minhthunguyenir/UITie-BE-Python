@@ -1,30 +1,45 @@
+"""
+APIView và Serializer quản lý phân hệ Bài viết (Posts), Bình luận (Comments),
+Tương tác (Likes), Chia sẻ (Share) và Thống kê hệ thống (Dashboard Statistics).
+
+Các phân hệ chính:
+- Phân quyền Quản trị (Admin Console): Phê duyệt, từ chối bài viết, xem thống kê.
+- Phân quyền Người dùng (User Feed): Tương tác bảng tin sinh viên.
+"""
+
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, serializers
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from apps.posts.models import Posts, Categories, Reports
+from apps.posts.models import Posts, Categories, Reports, Comments
 from apps.authentication.models import Users
 from django.db.models import Case, When, Value, IntegerField, Count
 from django.db.models.functions import TruncDate
 from datetime import timedelta
 from django.utils import timezone
 
-# 1. Serializer con đóng gói thông tin User người đăng
+# =====================================================================
+# I. ĐỊNH NGHĨA CÁC ĐỐI TƯỢNG ĐÓNG GÓI DỮ LIỆU LỒNG NHAU (NESTED SERIALIZERS)
+# =====================================================================
+
 class UserNestedSerializer(serializers.ModelSerializer):
+    """Đóng gói thông tin cơ bản của người dùng để tối ưu dung lượng response."""
     class Meta:
         model = Users
         fields = ['id', 'full_name', 'email', 'role']
 
-# 2. Serializer con đóng gói thông tin Danh mục bài viết
 class CategoryNestedSerializer(serializers.ModelSerializer):
+    """Đóng gói thông tin danh mục bài viết phục vụ hiển thị nhãn (Label)."""
     class Meta:
         model = Categories
         fields = ['id', 'category_name', 'description']
 
-# 3. Serializer cha đóng gói thông tin Bài viết toàn diện
 class PostAdminResponseSerializer(serializers.ModelSerializer):
-    # Đổi tên key từ 'user' thành 'author' để khớp 100% với Frontend môn cũ
+    """
+    Serializer chuyên biệt phục vụ giao diện quản trị (Admin Panel).
+    Bao gồm các thông tin nhạy cảm về kiểm duyệt như trạng thái và lý do từ chối.
+    """
     author = UserNestedSerializer(source='user', read_only=True)
     category = CategoryNestedSerializer(read_only=True)
     author_name = serializers.CharField(source='user.full_name', read_only=True)
@@ -34,8 +49,16 @@ class PostAdminResponseSerializer(serializers.ModelSerializer):
         model = Posts
         fields = '__all__'
 
-# 4. View xử lý lấy danh sách bài viết (Tên Class chuẩn chỉnh từng chữ để urls.py import)
+
+# =====================================================================
+# II. LOGIC NGHIỆP VỤ KIỂM DUYỆT NỘI DUNG (ADMIN MODERATION FLOW)
+# =====================================================================
+
 class PostAdminListAPIView(APIView):
+    """
+    API lấy danh sách bài viết phục vụ hội đồng kiểm duyệt của Admin.
+    Sử dụng biểu thức điều kiện Conditional Expression để ưu tiên bài viết 'Pending'.
+    """
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -43,66 +66,72 @@ class PostAdminListAPIView(APIView):
         if request.user.role not in ['Super Admin', 'Admin']:
             return Response({"detail": "Bạn không có quyền truy cập!"}, status=status.HTTP_403_FORBIDDEN)
 
-        # Đẩy bài đang Pending lên đầu, sau đó mới đến các bài khác
+        # Sắp xếp ưu tiên bài viết đang chờ duyệt (Pending) lên đầu danh sách
         posts = Posts.objects.all().order_by(
             Case(
-                # Nếu trạng thái là pending (chấp cả chữ hoa chữ thường), gán mức ưu tiên là 0 (đầu bảng)
                 When(status__iexact='pending', then=Value(0)),
-                # Các trạng thái còn lại (Accepted, Rejected...) gán mức ưu tiên là 1
                 default=Value(1),
                 output_field=IntegerField(),
             ),
-            '-id' # Sắp xếp phụ: Trong cùng một nhóm trạng thái, bài nào ID lớn hơn (mới hơn) nằm trên
+            '-id'
         )
 
         serializer = PostAdminResponseSerializer(posts, many=True)
         return Response({"data": serializer.data}, status=status.HTTP_200_OK)
     
-# 5. API XỬ LÝ DUYỆT/TỪ CHỐI BÀI VIẾT
+
 class PostValidateAPIView(APIView):
+    """
+    API thực thi quyết định phê duyệt bài viết của Quản trị viên.
+    Cập nhật trạng thái bài viết và ghi nhận lý do nếu bài viết bị từ chối.
+    """
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def put(self, request, pk):
-        # 1. PHÂN QUYỀN: Chỉ Admin/Super Admin mới được vào phòng kiểm duyệt
         if request.user.role not in ['Super Admin', 'Admin']:
             return Response({"detail": "Bạn không có quyền!"}, status=status.HTTP_403_FORBIDDEN)
         
-        # 2. TÌM BÀI VIẾT: Check xem bài viết cần duyệt có tồn tại không
         try:
             post = Posts.objects.get(pk=pk)
         except Posts.DoesNotExist:
             return Response({"detail": "Không tìm thấy bài viết!"}, status=status.HTTP_404_NOT_FOUND)
         
-        # 3. BẮT DỮ LIỆU TỪ FRONTEND: Lấy trạng thái và lý do từ body gửi lên
         status_moi = request.data.get('status')
         reject_reason = request.data.get('reject_reason')
 
         if not status_moi:
             return Response({"detail": "Thiếu trạng thái kiểm duyệt (status)!"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # 4. XỬ LÝ ĐỔI TRẠNG THÁI PHÙ HỢP: Chấp nhận cả chữ hoa chữ thường từ FE gửi lên
+        # Chuẩn hóa trạng thái đầu vào từ Frontend
         if status_moi.lower() in ['accepted', 'approved']:
             post.status = 'Accepted'
-            post.reject_reason = None # Duyệt thành công thì xóa lý do từ chối cũ
+            post.reject_reason = None
             
         elif status_moi.lower() in ['rejected', 'disapproved']:
             post.status = 'Rejected'
-            # Admin tự nhập tay lý do từ body truyền lên thay vì chọn sẵn
+            # Ghi nhận lý do nhập tay trực tiếp từ Admin
             post.reject_reason = reject_reason if reject_reason else 'Bài viết vi phạm tiêu chuẩn cộng đồng.'
             
         else:
-            # Phòng hờ trường hợp Frontend gửi trạng thái khác (như Pending...)
             post.status = status_moi
 
-        # Lưu cập nhật xuống SQL Server
         post.save()
         
         serializer = PostAdminResponseSerializer(post)
         return Response({"data": serializer.data}, status=status.HTTP_200_OK)
 
-# 6. Serializer cho luồng Feed (Bảng tin)
+
+# =====================================================================
+# III. LOGIC NGHIỆP VỤ BẢNG TIN SINH VIÊN (USER FEED FLOW)
+# =====================================================================
+
 class PostFeedSerializer(serializers.ModelSerializer):
+    """
+    Serializer bóc tách dữ liệu bài viết hiển thị trên Bảng tin công khai.
+    Tự động tính toán số liệu tương tác (Likes, Comments, Attachments) từ các quan hệ liên kết.
+    """
+    # 🌟 SỬA LỖI CHÍ MẠNG: Đã bổ sung khai báo author đồng bộ với Meta fields
     author = UserNestedSerializer(source='user', read_only=True)
     category = CategoryNestedSerializer(read_only=True)
     attachments = serializers.SerializerMethodField()
@@ -112,9 +141,14 @@ class PostFeedSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Posts
-        fields = ['id', 'author', 'category', 'content', 'visibility', 'status', 'is_edited', 'created_at', 'updated_at', 'attachments', 'likes', 'comments', 'parent_post']
+        fields = [
+            'id', 'author', 'category', 'content', 'visibility', 'status', 
+            'is_edited', 'created_at', 'updated_at', 'attachments', 'likes', 
+            'comments', 'parent_post'
+        ]
 
     def get_attachments(self, obj):
+        """Truy vấn danh sách tệp tin đính kèm liên kết qua bảng trung gian."""
         from apps.posts.models import PostAttachments, Attachments
         attachment_ids = PostAttachments.objects.filter(post=obj).values_list('attachment_id', flat=True)
         attachments = Attachments.objects.filter(id__in=attachment_ids)
@@ -130,21 +164,27 @@ class PostFeedSerializer(serializers.ModelSerializer):
         ]
 
     def get_likes(self, obj):
+        """Lấy danh sách định danh người dùng đã tương tác thích bài viết."""
         from apps.posts.models import Likes
         likes = Likes.objects.filter(post=obj)
         return [{"user_id": like.user_id} for like in likes]
 
     def get_comments(self, obj):
-        from apps.posts.models import Comments
+        """Tính toán tổng số lượng bình luận tầng phản hồi."""
         return Comments.objects.filter(post=obj).count()
 
     def get_parent_post(self, obj):
+        """Đệ quy cấu trúc bài viết gốc trong trường hợp thực hiện chia sẻ (Share/Repost)."""
         if obj.parent_post:
             return PostFeedSerializer(obj.parent_post).data
         return None
 
-# 7. Lấy danh sách Feed và Đăng bài viết
+
 class PostListCreateAPIView(APIView):
+    """
+    Xử lý truy vấn danh sách Bảng tin có bộ lọc nâng cao (Scope, User, Keyword)
+    và khởi tạo bài viết mới từ phía sinh viên.
+    """
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -153,9 +193,10 @@ class PostListCreateAPIView(APIView):
         user_id = request.query_params.get('user_id')
         keyword = request.query_params.get('keyword')
         
-        # Chỉ lấy bài viết đã duyệt
+        # Tiêu chuẩn hiển thị bảng tin: Chỉ hiển thị bài viết đã qua kiểm duyệt thành công
         posts = Posts.objects.filter(status__iexact='accepted')
 
+        # Áp dụng các bộ lọc điều kiện nâng cao nếu có tham số từ client
         if user_id:
             posts = posts.filter(user_id=user_id)
         elif scope == 'following':
@@ -172,7 +213,6 @@ class PostListCreateAPIView(APIView):
             )
 
         posts = posts.order_by('-id')
-
         serializer = PostFeedSerializer(posts, many=True)
         return Response({"data": serializer.data}, status=status.HTTP_200_OK)
 
@@ -189,15 +229,17 @@ class PostListCreateAPIView(APIView):
         except Categories.DoesNotExist:
             return Response({"detail": "Category không tồn tại!"}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Khởi tạo thực thể bài viết với trạng thái mặc định chờ duyệt (Pending)
         post = Posts.objects.create(
             user=request.user,
             category=category,
             content=content,
             visibility=visibility,
-            status='Pending', # Mặc định bài đăng cần Admin duyệt
+            status='Pending',
             is_edited=False
         )
         
+        # Đồng bộ hóa siêu dữ liệu tệp tin đính kèm (đã upload thông qua Object Storage MinIO)
         attachments_data = request.data.get('attachments', [])
         from apps.posts.models import Attachments, PostAttachments
         if attachments_data:
@@ -213,8 +255,9 @@ class PostListCreateAPIView(APIView):
             "data": PostFeedSerializer(post).data
         }, status=status.HTTP_201_CREATED)
 
-# 8. API Sửa, Xóa bài viết
+
 class PostDetailAPIView(APIView):
+    """Quản lý vòng đời chi tiết bài viết bao gồm: Xem chi tiết, Cập nhật nội dung và Hủy bỏ."""
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -236,7 +279,6 @@ class PostDetailAPIView(APIView):
     def get(self, request, pk):
         try:
             post = Posts.objects.get(pk=pk)
-            # Chỉ cho phép xem nếu bài đã được duyệt hoặc người đang xem chính là tác giả
             if post.status != 'Accepted' and post.user != request.user:
                 return Response({"detail": "Bài viết chưa được duyệt hoặc bạn không có quyền xem!"}, status=status.HTTP_403_FORBIDDEN)
         except Posts.DoesNotExist:
@@ -268,6 +310,7 @@ class PostDetailAPIView(APIView):
 
         post.save()
 
+        # Làm mới mảng tệp tin đính kèm nếu phía client có sự thay đổi cấu trúc tệp
         attachments_data = request.data.get('attachments')
         if attachments_data is not None:
             from apps.posts.models import Attachments, PostAttachments
@@ -294,8 +337,9 @@ class PostDetailAPIView(APIView):
             "data": {"detail": "Xóa bài viết thành công"}
         }, status=status.HTTP_200_OK)
 
-# 9. API Like/Bỏ Like
+
 class PostLikeAPIView(APIView):
+    """Xử lý hành vi tương tác Thích/Bỏ thích bài viết sử dụng cơ chế Hoán đổi (Toggle Logic)."""
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -314,8 +358,9 @@ class PostLikeAPIView(APIView):
             
         return Response({"data": {"detail": "Đã thích", "liked": True}}, status=status.HTTP_200_OK)
 
-# 10. API Chia sẻ bài viết
+
 class PostShareAPIView(APIView):
+    """Xử lý hành vi Repost/Share thông qua việc thiết lập khóa ngoại liên kết tuyến tính (parent_post)."""
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -333,7 +378,7 @@ class PostShareAPIView(APIView):
             parent_post=parent_post,
             content=content,
             visibility='Public',
-            status='Accepted',
+            status='Accepted', # Đối với bài viết chia sẻ từ nguồn hợp lệ thì không cần duyệt lại nguồn
             is_edited=False
         )
         
@@ -341,10 +386,13 @@ class PostShareAPIView(APIView):
             "data": PostFeedSerializer(new_post).data
         }, status=status.HTTP_201_CREATED)
 
-# 11. API Bình luận
-from apps.posts.models import Comments
+
+# =====================================================================
+# IV. PHÂN HỆ QUẢN LÝ TƯƠNG TÁC BÌNH LUẬN (COMMENTS LOGIC)
+# =====================================================================
 
 class CommentSerializer(serializers.ModelSerializer):
+    """Serializer hỗ trợ đóng gói phân hệ bình luận dạng cây phân cấp (Threaded Reply)."""
     user = UserNestedSerializer(read_only=True)
     attachments = serializers.SerializerMethodField()
     parent_comment_id = serializers.ReadOnlyField()
@@ -373,7 +421,9 @@ class CommentSerializer(serializers.ModelSerializer):
         except Exception:
             return []
 
+
 class CommentListCreateAPIView(APIView):
+    """Truy vấn danh sách bình luận theo ngữ cảnh bài viết và tạo bình luận mới (hỗ trợ Reply lồng nhau)."""
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -431,7 +481,9 @@ class CommentListCreateAPIView(APIView):
             "data": CommentSerializer(comment).data
         }, status=status.HTTP_201_CREATED)
 
+
 class CommentDetailAPIView(APIView):
+    """Cập nhật nội dung hoặc gỡ bỏ hoàn toàn phản hồi bình luận khỏi hệ thống cơ sở dữ liệu."""
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -471,13 +523,17 @@ class CommentDetailAPIView(APIView):
             "data": {"detail": "Xóa bình luận thành công"}
         }, status=status.HTTP_200_OK)
 
-# 12. API Danh mục xu hướng
+
+# =====================================================================
+# VI. PHÂN HỆ PHÂN TÍCH VÀ THỐNG KÊ SỐ LIỆU ĐỒNG BỘ (STATS & TRENDING APIs)
+# =====================================================================
+
 class CategoryTrendingAPIView(APIView):
+    """API thống kê Top 5 danh mục có mật độ tương tác và số lượng bài đăng cao nhất (Trending Topics)."""
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        # Join qua bảng Posts, đếm số lượng bài viết 'Accepted' cho từng danh mục
         trending = Posts.objects.filter(status__iexact='accepted') \
             .values('category__id', 'category__category_name', 'category__description') \
             .annotate(post_count=Count('id')) \
@@ -494,8 +550,13 @@ class CategoryTrendingAPIView(APIView):
         
         return Response({"data": data}, status=status.HTTP_200_OK)
 
-# 13. API THỐNG KÊ DASHBOARD TOÀN DIỆN CHO ADMIN
+
 class DashboardStatsAPIView(APIView):
+    """
+    API tổng hợp số liệu Dashboard quản trị toàn diện.
+    Thực hiện tổng hợp số liệu (Aggregation) thời gian thực và đồng bộ cấu trúc 
+    đầu ra đa chuẩn định dạng (camelCase và snake_case) để tương thích tối đa với Client Side Components.
+    """
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -504,25 +565,28 @@ class DashboardStatsAPIView(APIView):
             return Response({"detail": "Bạn không có quyền xem dữ liệu thống kê này!"}, status=status.HTTP_403_FORBIDDEN)
 
         try:
-            # 1. Tính toán số liệu từ SQL Server (Giữ nguyên)
+            # 1. Truy vấn các chỉ số đo lường cốt lõi (Core Metrics) từ SQL Server
             total_users = Users.objects.count()
             total_posts = Posts.objects.count()
             pending_posts = Posts.objects.filter(status__iexact='pending').count()
             total_reports = Reports.objects.count()
 
+            # Phân bổ bài viết theo các trạng thái kiểm duyệt hiện tại
             post_status_counts = Posts.objects.values('status').annotate(total=Count('id'))
             status_distribution = {item['status']: item['total'] for item in post_status_counts}
 
+            # Phân bổ số lượng bài viết tương ứng với từng danh mục hệ thống
             category_counts = Posts.objects.values('category__category_name').annotate(total=Count('id'))
             
-            # 🌟 ĐÓN ĐẦU BIỂU ĐỒ: Tạo mảng postByCategory chuẩn chỉnh cấu hình Frontend
+            # Đóng gói cấu trúc mảng tương thích với sơ đồ giao diện Frontend React Card/Offbar
             post_by_category_data = [
                 {
                     "category_name": item['category__category_name'] if item['category__category_name'] else "Chưa phân loại",
-                    "total": str(item['total']) # Ép về kiểu string chuẩn đét theo file statistic.ts của FE
+                    "total": str(item['total']) # Định dạng kiểu chuỗi ký tự theo giao diện TypeScript quy định
                 } for item in category_counts
             ]
 
+            # Biểu đồ xu hướng phát triển bài viết mới trong chu kỳ 7 ngày gần nhất
             seven_days_ago = timezone.now() - timedelta(days=7)
             daily_posts = Posts.objects.filter(created_at__gte=seven_days_ago)\
                 .annotate(date=TruncDate('created_at'))\
@@ -537,29 +601,48 @@ class DashboardStatsAPIView(APIView):
                 } for item in daily_posts
             ]
 
-            # 🚀 HỆ THỐNG BIẾN BAO SÂN - KHỚP 100% VỚI INTERFACE STATISTICS
+            # 2. Xây dựng cấu trúc phản hồi an toàn (Fallback & Rải thảm dữ liệu cấu trúc lồng)
             dashboard_data = {
-                # 3 biến Core cứu sống 3 cái ô Overview lúc nãy của Thư
                 "users": total_users,
                 "posts": total_posts,
                 "reports": total_reports,
-                
-                # 🌟 CHIÊU CUỐI: Trả về đúng key 'postByCategory' để kích hoạt biểu đồ cột/tròn
                 "postByCategory": post_by_category_data,
 
-                # Bọc lót thêm các biến camelCase và gạch dưới đề phòng các màn hình khác gọi ké
+                # Thuộc tính mở rộng tương thích với chuẩn camelCase của các Admin UI template cũ
                 "totalUsers": total_users,
                 "totalPosts": total_posts,
                 "openReports": total_reports,
+                "totalReports": total_reports,
+                "pendingPosts": pending_posts,
+                
                 "total_users": total_users,
                 "total_posts": total_posts,
                 "open_reports": total_reports,
+                "pending_posts": pending_posts,
+
+                "summary": {
+                    "totalUsers": total_users,
+                    "totalPosts": total_posts,
+                    "openReports": total_reports,
+                    "total_users": total_users,
+                    "total_posts": total_posts,
+                    "open_reports": total_reports,
+                },
+                
+                "statusChart": status_distribution,
                 "status_chart": status_distribution,
+                "status": status_distribution,
+                
+                "categoryChart": post_by_category_data,
+                "category_chart": post_by_category_data,
+                "categories": post_by_category_data,
+                
+                "postTrendChart": post_trend,
                 "post_trend_chart": post_trend,
                 "trend": post_trend
             }
 
-            # Nhân bản thêm một tầng "data" bên trong để trị dứt điểm lỗi quên viết .then(res => res.data) của FE
+            # Xử lý bao sân tầng bọc Axios Client của Frontend
             dashboard_data["data"] = dashboard_data.copy()
 
             return Response(dashboard_data, status=status.HTTP_200_OK)
