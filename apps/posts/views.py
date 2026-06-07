@@ -3,9 +3,12 @@ from rest_framework.response import Response
 from rest_framework import status, serializers
 from rest_framework.permissions import IsAuthenticated
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from apps.posts.models import Posts, Categories
+from apps.posts.models import Posts, Categories, Reports
 from apps.authentication.models import Users
-from django.db.models import Case, When, Value, IntegerField
+from django.db.models import Case, When, Value, IntegerField, Count
+from django.db.models.functions import TruncDate
+from datetime import timedelta
+from django.utils import timezone
 
 # 1. Serializer con đóng gói thông tin User người đăng
 class UserNestedSerializer(serializers.ModelSerializer):
@@ -85,7 +88,7 @@ class PostValidateAPIView(APIView):
             
         elif status_moi.lower() in ['rejected', 'disapproved']:
             post.status = 'Rejected'
-            # Nếu FE không truyền lý do, lấy lý do mặc định chuẩn chỉ
+            # Admin tự nhập tay lý do từ body truyền lên thay vì chọn sẵn
             post.reject_reason = reject_reason if reject_reason else 'Bài viết vi phạm tiêu chuẩn cộng đồng.'
             
         else:
@@ -468,20 +471,18 @@ class CommentDetailAPIView(APIView):
             "data": {"detail": "Xóa bình luận thành công"}
         }, status=status.HTTP_200_OK)
 
+# 12. API Danh mục xu hướng
 class CategoryTrendingAPIView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        from django.db.models import Count
-        
-        # 1. Join qua bảng Posts, đếm số lượng bài viết 'Accepted' cho từng danh mục
+        # Join qua bảng Posts, đếm số lượng bài viết 'Accepted' cho từng danh mục
         trending = Posts.objects.filter(status__iexact='accepted') \
             .values('category__id', 'category__category_name', 'category__description') \
             .annotate(post_count=Count('id')) \
             .order_by('-post_count')[:5]
         
-        # 2. Đóng gói dữ liệu trả về cho Frontend
         data = [
             {
                 "id": item['category__id'],
@@ -492,3 +493,79 @@ class CategoryTrendingAPIView(APIView):
         ]
         
         return Response({"data": data}, status=status.HTTP_200_OK)
+
+# 13. API THỐNG KÊ DASHBOARD TOÀN DIỆN CHO ADMIN
+class DashboardStatsAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        if request.user.role not in ['Super Admin', 'Admin']:
+            return Response({"detail": "Bạn không có quyền xem dữ liệu thống kê này!"}, status=status.HTTP_403_FORBIDDEN)
+
+        try:
+            # 1. Tính toán số liệu từ SQL Server (Giữ nguyên)
+            total_users = Users.objects.count()
+            total_posts = Posts.objects.count()
+            pending_posts = Posts.objects.filter(status__iexact='pending').count()
+            total_reports = Reports.objects.count()
+
+            post_status_counts = Posts.objects.values('status').annotate(total=Count('id'))
+            status_distribution = {item['status']: item['total'] for item in post_status_counts}
+
+            category_counts = Posts.objects.values('category__category_name').annotate(total=Count('id'))
+            
+            # 🌟 ĐÓN ĐẦU BIỂU ĐỒ: Tạo mảng postByCategory chuẩn chỉnh cấu hình Frontend
+            post_by_category_data = [
+                {
+                    "category_name": item['category__category_name'] if item['category__category_name'] else "Chưa phân loại",
+                    "total": str(item['total']) # Ép về kiểu string chuẩn đét theo file statistic.ts của FE
+                } for item in category_counts
+            ]
+
+            seven_days_ago = timezone.now() - timedelta(days=7)
+            daily_posts = Posts.objects.filter(created_at__gte=seven_days_ago)\
+                .annotate(date=TruncDate('created_at'))\
+                .values('date')\
+                .annotate(total=Count('id'))\
+                .order_by('date')
+
+            post_trend = [
+                {
+                    "date": item['date'].strftime('%d/%m') if item['date'] else "",
+                    "total": item['total']
+                } for item in daily_posts
+            ]
+
+            # 🚀 HỆ THỐNG BIẾN BAO SÂN - KHỚP 100% VỚI INTERFACE STATISTICS
+            dashboard_data = {
+                # 3 biến Core cứu sống 3 cái ô Overview lúc nãy của Thư
+                "users": total_users,
+                "posts": total_posts,
+                "reports": total_reports,
+                
+                # 🌟 CHIÊU CUỐI: Trả về đúng key 'postByCategory' để kích hoạt biểu đồ cột/tròn
+                "postByCategory": post_by_category_data,
+
+                # Bọc lót thêm các biến camelCase và gạch dưới đề phòng các màn hình khác gọi ké
+                "totalUsers": total_users,
+                "totalPosts": total_posts,
+                "openReports": total_reports,
+                "total_users": total_users,
+                "total_posts": total_posts,
+                "open_reports": total_reports,
+                "status_chart": status_distribution,
+                "post_trend_chart": post_trend,
+                "trend": post_trend
+            }
+
+            # Nhân bản thêm một tầng "data" bên trong để trị dứt điểm lỗi quên viết .then(res => res.data) của FE
+            dashboard_data["data"] = dashboard_data.copy()
+
+            return Response(dashboard_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            return Response(
+                {"detail": f"Lỗi tính toán dữ liệu Dashboard thống kê: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
