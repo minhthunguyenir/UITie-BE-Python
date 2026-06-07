@@ -38,3 +38,42 @@ class UserSaveSerializer(serializers.ModelSerializer):
         else:
             validated_data.pop('password', None) # Không sửa mật khẩu nếu FE không truyền lên
         return super().update(instance, validated_data)
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    """Serializer dùng cho trang cá nhân (Profile) với nhiều thông tin chi tiết hơn"""
+    id = serializers.CharField(read_only=True)
+    followers_count = serializers.SerializerMethodField()
+    following_count = serializers.SerializerMethodField()
+    is_following = serializers.SerializerMethodField()
+    is_me = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Users
+        fields = [
+            'id', 'email', 'full_name', 'mssv', 'phone_number', 
+            'role', 'status', 'faculty', 'class_name', 'academic_year', 
+            'created_at', 'updated_at', 'followers_count', 'following_count', 'is_following', 'is_me'
+        ]
+
+    def get_followers_count(self, obj):
+        from apps.posts.models import Follows
+        return Follows.objects.filter(following=obj).count()
+
+    def get_following_count(self, obj):
+        from apps.posts.models import Follows
+        return Follows.objects.filter(follower=obj).count()
+        
+    def get_is_following(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            if request.user == obj:
+                return False
+            from apps.posts.models import Follows
+            return Follows.objects.filter(follower=request.user, following=obj).exists()
+        return False
+
+    def get_is_me(self, obj):
+        request = self.context.get('request')
+        if request and request.user.is_authenticated:
+            return request.user == obj
+        return False
