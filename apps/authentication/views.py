@@ -1,9 +1,11 @@
 """
-Views cho module Authentication.
+APIView xử lý phân hệ Xác thực (Authentication), Phân quyền (Authorization)
+và Quản trị tài khoản người dùng (User Management Profile).
 
-File này chứa các endpoint xử lý login, quản lý tài khoản (CRUD),
-khóa/mở khóa, profile, follow, tìm kiếm và gợi ý follow.
-
+Các chức năng chính tích hợp trong module:
+- Cấp phát Token định danh bảo mật tập trung qua chuẩn mã hóa JSON Web Token (JWT).
+- Phân định luồng kiểm soát truy cập dựa trên vai trò người dùng (Role-based Access Control - RBAC).
+- Quản trị thông tin hồ sơ cá nhân, tìm kiếm nâng cao và thuật toán gợi ý kết nối.
 """
 
 from rest_framework.views import APIView
@@ -14,28 +16,33 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.hashers import check_password
 from apps.authentication.models import Users
-from apps.authentication.serializers import LoginRequestSerializer, UserResponseSerializer
-from apps.authentication.serializers import UserResponseSerializer, UserSaveSerializer, UserProfileSerializer, ProfileUpdateSerializer
+from apps.authentication.serializers import (
+    LoginRequestSerializer, UserResponseSerializer, 
+    UserSaveSerializer, UserProfileSerializer, ProfileUpdateSerializer
+)
 from django.utils import timezone
+
+# =====================================================================
+# I. PHÂN HỆ XÁC THỰC VÀ ĐĂNG NHẬP HỆ THỐNG (AUTHENTICATION FLOW)
+# =====================================================================
 
 class LoginAPIView(APIView):
     """
-    Xử lý đăng nhập và phát token JWT.
-
-    Tại sao:
-    - Tách riêng endpoint đăng nhập để dễ áp dụng các policy bảo mật
-      (rate-limit, MFA, logging) mà không ảnh hưởng tới các API khác.
-    - Trả về cấu trúc đáp ứng khớp Frontend để giảm thay đổi client.
+    Điểm cuối xử lý đăng nhập, kiểm tra tính toàn vẹn và cấp phát token JWT.
+    
+    Thiết kế tách biệt phân hệ đăng nhập độc lập giúp dễ dàng tích hợp các chính sách
+    bảo mật nâng cao (như Rate-limiting, ghi log kiểm toán Audit log) mà không ảnh hưởng
+    tới hiệu năng vận hành tổng thể của các API nghiệp vụ khác.
     """
 
     def post(self, request):
         """
-        Thực hiện các bước xác thực:
-        1) Validate payload từ Frontend
-        2) Tìm user theo email
-        3) Kiểm tra trạng thái tài khoản (Locked/Inactive)
-        4) So khớp mật khẩu (hash)
-        5) Trả về access token và thông tin user
+        Thực hiện quy trình xác thực đa tầng kiểm định đầu vào:
+        1) Kiểm tra tính hợp lệ của cấu trúc dữ liệu gửi lên (Payload Validation).
+        2) Kiểm tra ràng buộc định dạng tên miền email nội bộ của cơ sở giáo dục.
+        3) Truy vấn thực thể người dùng, xác định trạng thái kích hoạt/khóa mềm của tài khoản.
+        4) Xác thực chữ ký mã hóa mật khẩu thông qua thuật toán băm (Bcrypt/PBKDF2).
+        5) Khởi tạo và phản hồi cặp mã token truy cập an toàn (Access Token).
         """
         serializer = LoginRequestSerializer(data=request.data)
         if not serializer.is_valid():
@@ -44,44 +51,71 @@ class LoginAPIView(APIView):
         email = serializer.validated_data['email']
         password = serializer.validated_data['password']
 
+        # -----------------------------------------------------------------
+        # [RÀNG BUỘC NGHIỆP VỤ TC_AUTH_04]: Kiểm tra định dạng tên miền email nội bộ
+        # Chặn xử lý sớm ngay tại tầng ứng dụng nếu người dùng sử dụng email cá nhân ngoài hệ thống
+        # -----------------------------------------------------------------
+        if not email.endswith('@ms.uit.edu.vn'):
+            return Response(
+                {"detail": "Vui lòng sử dụng email @ms.uit.edu.vn."}, 
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY
+            )
+
         try:
             user = Users.objects.get(email=email)
         except Users.DoesNotExist:
-            return Response({"detail": "Tài khoản hoặc mật khẩu không chính xác!"}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response(
+                {"detail": "Tài khoản hoặc mật khẩu không chính xác!"}, 
+                status=status.HTTP_401_UNAUTHORIZED
+            )
 
-        # Nếu tài khoản bị khóa/không kích hoạt thì chặn sớm, tránh lộ thông tin
-        if user.status == 'Locked':
-            return Response({"detail": f"Tài khoản đã bị khóa! Lý do: {user.status_reason or 'Không có'}"}, status=status.HTTP_403_FORBIDDEN)
+        # -----------------------------------------------------------------
+        # [RÀNG BUỘC NGHIỆP VỤ TC_AUTH_05]: Kiểm tra trạng thái hoạt động của tài khoản
+        # Chặn các yêu cầu đăng nhập từ tài khoản đang trong diện bị đình chỉ (Blocked/Locked)
+        # -----------------------------------------------------------------
+        if user.status in ['Blocked', 'Locked']:
+            return Response(
+                {"detail": "Tài khoản của bạn đã bị khóa. Vui lòng liên hệ Admin."}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
         elif user.status == 'Inactive':
-            return Response({"detail": "Tài khoản chưa được kích hoạt!"}, status=status.HTTP_403_FORBIDDEN)
+            return Response(
+                {"detail": "Tài khoản chưa được kích hoạt!"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
 
+        # Kiểm tra tính đúng đắn của mật khẩu thông qua hàm so khớp chuỗi băm an toàn
         if not check_password(password, user.password):
-            return Response({"detail": "Tài khoản hoặc mật khẩu không chính xác!"}, status=status.HTTP_401_UNAUTHORIZED)
+            return Response(
+                {"detail": "Tài khoản hoặc mật khẩu không chính xác!"}, 
+                status=status.HTTP_401_UNAUTHORIZED
+            )
 
+        # Khởi tạo chu kỳ mã Token định danh JWT mới cho phiên làm việc hợp lệ
         refresh = RefreshToken.for_user(user)
 
-        return Response({"data": {"user": UserResponseSerializer(user).data, "token": str(refresh.access_token)}}, status=status.HTTP_200_OK)
+        return Response({
+            "data": {
+                "user": UserResponseSerializer(user).data, 
+                "token": str(refresh.access_token)
+            }
+        }, status=status.HTTP_200_OK)
+
+
+# =====================================================================
+# II. PHÂN HỆ QUẢN TRỊ TÀI KHOẢN TẬP TRUNG CHỦ QUẢN (ADMIN AREA - RBAC)
+# =====================================================================
 
 class UserListAPIView(APIView):
     """
-    Quản lý danh sách người dùng và tạo tài khoản (Admin area).
-
-    Tại sao:
-    - Giới hạn chỉ Admin/Super Admin gọi được để đảm bảo phân quyền.
-    - Khi tạo user cần thêm kiểm tra nâng cao để tránh Admin thường
-      vô tình hoặc cố ý tạo tài khoản có quyền cao hơn.
+    Điểm cuối hỗ trợ truy xuất danh sách tổng quan và khởi tạo tài khoản mới.
+    Áp dụng cơ chế phân quyền kiểm soát nghiêm ngặt theo mô hình RBAC.
     """
-
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        """
-        Trả về danh sách user để hiển thị trong admin panel.
-
-        Lưu ý: truy vấn trả về tất cả users và frontend chịu trách nhiệm
-        phân trang/hiển thị; backend giữ logic phân quyền.
-        """
+        """Truy xuất danh sách toàn bộ người dùng phục vụ bảng quản trị của Admin/Super Admin."""
         if request.user.role not in ['Super Admin', 'Admin']:
             return Response({"detail": "Bạn không có quyền truy cập tính năng này!"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -91,15 +125,14 @@ class UserListAPIView(APIView):
 
     def post(self, request):
         """
-        Tạo tài khoản mới (dành cho Admin/Super-Admin).
-
-        Business rules:
-        - Student không được phép tạo tài khoản.
-        - Admin thường không được tạo tài khoản Admin/Super Admin.
+        Khởi tạo tài khoản sinh viên mới từ hội đồng quản trị hệ thống.
+        Chứa logic bẫy phân cấp quyền hạn: Ngăn chặn tài khoản Admin cấp thấp tự ý khởi tạo
+        hoặc nâng quyền cho các tài khoản Admin đồng cấp hoặc Super Admin cấp cao hơn.
         """
         if request.user.role not in ['Super Admin', 'Admin']:
             return Response({"detail": "Bạn không có quyền thực hiện hành động này!"}, status=status.HTTP_403_FORBIDDEN)
 
+        # Ràng buộc kiểm soát phân cấp: Chỉ cho phép Admin thường khởi tạo tài khoản phân quyền Student
         if request.user.role == 'Admin':
             role_muon_tao = request.data.get('role')
             if role_muon_tao in ['Super Admin', 'Admin']:
@@ -112,25 +145,16 @@ class UserListAPIView(APIView):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+
 class UserDetailAPIView(APIView):
-    """
-    Xem và sửa thông tin từng người dùng (Admin area).
-
-    Tại sao: tách endpoint chi tiết theo ID để áp dụng audit và
-    business validations riêng trước khi cập nhật (ví dụ không cho
-    Admin thường sửa Admin khác).
-    """
-
+    """Xử lý cập nhật thông tin chi tiết từng thực thể người dùng cụ thể thông qua định danh khóa chính (ID)."""
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def put(self, request, pk):
         """
-        Cập nhật partial thông tin user theo ID.
-
-        Kiểm tra phân quyền nâng cao theo SRS:
-        - Chỉ Admin/Super Admin được phép vào endpoint này.
-        - Admin thường không được sửa tài khoản cấp cao hoặc nâng quyền.
+        Cập nhật từng phần thuộc tính của người dùng (Partial Update).
+        Thực thi các quy tắc kiểm tra ràng buộc phân cấp nghiêm ngặt nhằm tránh leo thang đặc quyền trái phép.
         """
         if request.user.role not in ['Super Admin', 'Admin']:
             return Response({"detail": "Bạn không có quyền!"}, status=status.HTTP_403_FORBIDDEN)
@@ -140,12 +164,14 @@ class UserDetailAPIView(APIView):
         except Users.DoesNotExist:
             return Response({"detail": "Không tìm thấy người dùng này!"}, status=status.HTTP_404_NOT_FOUND)
 
+        # Ngăn chặn việc Admin thông thường can thiệp sửa đổi cấu trúc dữ liệu của các Admin quản trị khác
         if request.user.role == 'Admin':
             if user_to_update.role in ['Super Admin', 'Admin']:
                 return Response({"detail": "Tài khoản Admin thường không có quyền chỉnh sửa tài khoản cấp cao khác!"}, status=status.HTTP_403_FORBIDDEN)
+            
             role_moi = request.data.get('role')
             if role_moi in ['Super Admin', 'Admin']:
-                return Response({"detail": "Admin thường không thể nâng cấp tài khoản lên quyền Admin/Super Admin!"}, status=status.HTTP_403_FORBIDDEN)
+                return Response({"detail": "Admin thường không thể nâng cấp tài khoản lên quyền Admin/Super Admin!"}, status=status.HTTP_403_FORBIDGEN)
 
         serializer = UserSaveSerializer(user_to_update, data=request.data, partial=True)
         if serializer.is_valid():
@@ -154,20 +180,18 @@ class UserDetailAPIView(APIView):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
+# =====================================================================
+# III. PHÂN HỆ XỬ LÝ HỒ SƠ VÀ TƯƠNG TÁC XÃ HỘI (USER PROFILE & INTERACTIONS)
+# =====================================================================
+
 class UserProfileAPIView(APIView):
-    """
-    Xem và cập nhật hồ sơ cá nhân.
-
-    Tại sao: quyền chỉnh sửa profile chỉ thuộc về chính owner; việc
-    tách riêng GET/PUT giúp backend kiểm soát an toàn (không cho user
-    sửa email/role/status qua endpoint này).
-    """
-
+    """Phân hệ cho phép cá nhân người dùng tự truy xuất và cập nhật thông tin hồ sơ (Owner-only operation)."""
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk=None):
-        """Trả về profile của chính user hoặc profile theo ID nếu được truyền."""
+        """Truy xuất thông tin hồ sơ chi tiết. Hỗ trợ hiển thị profile cá nhân hoặc profile công khai của thành viên khác."""
         try:
             user = Users.objects.get(pk=pk) if pk else request.user
         except Users.DoesNotExist:
@@ -178,8 +202,8 @@ class UserProfileAPIView(APIView):
 
     def put(self, request, pk=None):
         """
-        Owner-only update: chặn việc user cố tình truyền id người khác.
-        Cho phép cập nhật một số trường cá nhân được whitelist ở serializer.
+        Cập nhật thông tin cá nhân. Chặn hoàn toàn hành vi thay đổi thuộc tính hồ sơ của người khác.
+        Chỉ cho phép thay đổi các trường dữ liệu được Whitelist (như Tiểu sử, Avatar) để bảo vệ tính toàn vẹn hệ thống.
         """
         if pk and str(pk) != str(request.user.id):
             return Response({"detail": "Bạn không có quyền chỉnh sửa hồ sơ của người khác!"}, status=status.HTTP_403_FORBIDDEN)
@@ -191,19 +215,20 @@ class UserProfileAPIView(APIView):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
 class UserFollowAPIView(APIView):
     """
-    Follow/unfollow người dùng.
-
-    Tại sao: hành động follow là toggle (idempotent tại mức business):
-    - Nếu đã follow thì un-follow, ngược lại tạo quan hệ follow mới.
-    - Không cho phép follow chính mình.
+    Xử lý mối quan hệ kết nối giữa các thực thể người dùng hệ thống.
+    Áp dụng cơ chế hoán đổi trạng thái Toggle Logic (Idempotent tại mức logic nghiệp vụ).
     """
-
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def post(self, request, pk):
+        """
+        Thực hiện thiết lập hoặc hủy bỏ mối quan hệ theo dõi (Follow/Unfollow).
+        Ràng buộc bắt buộc: Người dùng tuyệt đối không được tự thiết lập mối quan hệ theo dõi chính mình.
+        """
         try:
             target_user = Users.objects.get(pk=pk)
         except Users.DoesNotExist:
@@ -216,25 +241,26 @@ class UserFollowAPIView(APIView):
         follow = Follows.objects.filter(follower=request.user, following=target_user).first()
 
         if follow:
+            # Nếu mối quan hệ đã tồn tại -> Thực hiện cơ chế Hủy theo dõi (Unfollow)
             follow.delete()
             return Response({"data": {"detail": "Đã bỏ theo dõi", "is_following": False}}, status=status.HTTP_200_OK)
         else:
+            # Nếu mối quan hệ chưa tồn tại -> Khởi tạo bản ghi liên kết mới vào bảng trung gian
             Follows.objects.create(follower=request.user, following=target_user, created_at=timezone.now(), updated_at=timezone.now())
             return Response({"data": {"detail": "Đã theo dõi", "is_following": True}}, status=status.HTTP_200_OK)
-    
+        
+
+# =====================================================================
+# IV. PHÂN HỆ KIỂM SOÁT TRẠNG THÁI TÀI KHOẢN AN TOÀN (AUDIT LOCK LOGIC)
+# =====================================================================
+
 class UserLockAPIView(APIView):
-    """
-    Khóa tài khoản (chuyển status -> 'Locked').
-
-    Tại sao: thao tác khóa nên tách biệt với cập nhật thông tin chung để
-    đảm bảo chỉ thay đổi trạng thái, đồng thời cho phép ghi lý do khóa
-    (status_reason) khi cần cho mục audit.
-    """
-
+    """API chuyên biệt phục vụ thao tác đình chỉ và khóa cứng quyền truy cập của tài khoản vi phạm tiêu chuẩn."""
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def put(self, request, pk):
+        """Chuyển đổi trạng thái thực thể người dùng sang trạng thái 'Locked' kèm theo lý do vi phạm phục vụ công tác kiểm toán."""
         if request.user.role not in ['Super Admin', 'Admin']:
             return Response({"detail": "Bạn không có quyền!"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -256,18 +282,14 @@ class UserLockAPIView(APIView):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+
 class UserUnlockAPIView(APIView):
-    """
-    Mở khóa tài khoản (chuyển status -> 'Active').
-
-    Tại sao: cần endpoint riêng để phân biệt intent (unlock vs general update)
-    và áp các kiểm soát phân quyền tương tự như khi khóa.
-    """
-
+    """API phục hồi quyền hoạt động cho tài khoản người dùng sau thời gian chấp hành kỷ luật."""
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def put(self, request, pk):
+        """Khôi phục trạng thái hoạt động thực thể về trạng thái 'Active' và gỡ bỏ hoàn toàn các lệnh hạn chế truy cập."""
         if request.user.role not in ['Super Admin', 'Admin']:
             return Response({"detail": "Bạn không có quyền!"}, status=status.HTTP_403_FORBIDDEN)
 
@@ -289,23 +311,25 @@ class UserUnlockAPIView(APIView):
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
+# =====================================================================
+# V. BỘ LỌC TÌM KIẾM ĐA TIÊU CHÍ VÀ THUẬT TOÁN GỢI Ý KẾT NỐI (SEARCH & RECOMMENDATION)
+# =====================================================================
+
 class UserSearchAPIView(APIView):
-    """
-    Tìm kiếm người dùng theo keyword.
-
-    Tại sao: tách riêng search endpoint để có thể tối ưu hóa (index,
-    ranking, paginate) mà không ảnh hưởng tới API list/CRUD.
-    """
-
+    """Phân hệ truy vấn tìm kiếm người dùng. Hỗ trợ tìm kiếm mờ (Fuzzy Search) đa tiêu chí dữ liệu đầu vào."""
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        """Thực hiện tìm kiếm song song theo Họ tên (full_name), Email liên kết, hoặc Mã số sinh viên (mssv)."""
         keyword = request.query_params.get('keyword', '').strip()
         if keyword:
             from django.db.models import Q
             users = Users.objects.filter(
-                Q(full_name__icontains=keyword) | Q(email__icontains=keyword) | Q(mssv__icontains=keyword)
+                Q(full_name__icontains=keyword) | 
+                Q(email__icontains=keyword) | 
+                Q(mssv__icontains=keyword)
             ).order_by('-id')
         else:
             users = Users.objects.none()
@@ -313,31 +337,32 @@ class UserSearchAPIView(APIView):
         serializer = UserResponseSerializer(users, many=True)
         return Response({"data": serializer.data}, status=status.HTTP_200_OK)
 
+
 class UserSuggestedFollowsAPIView(APIView):
     """
-    Gợi ý người dùng nên follow (recommendation đơn giản trên DB).
-
-    Tại sao: cung cấp fallback recommendation dựa trên các tiêu chí
-    có sẵn (faculty, academic_year, class) để gợi ý nhanh cho UI sidebar.
-    Thiết kế này dễ chạy trực tiếp trên DB (annotate) và phù hợp với
-    dataset nhỏ/ trung bình. Nếu scale, nên thay bằng hệ thống đề xuất riêng.
+    Hệ thống khuyến nghị kết nối đồng đẳng (Simple Fallback Recommendation Engine).
+    Tính toán trọng số dựa trên mức độ tương đồng về thuộc tính định danh trong môi trường đại học.
     """
-
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        """
+        Tính toán chấm điểm tương đồng để gợi ý Top 5 người dùng phù hợp nhất:
+        - Điều kiện loại trừ: Loại bỏ chính mình, loại bỏ tài khoản đã theo dõi, loại bỏ tài khoản bị khóa.
+        - Cơ chế chấm điểm (Scoring Weight): Trùng Khoa (Faculty) +1đ, trùng Khóa học (Academic Year) +1đ, trùng Lớp sinh hoạt (Class Name) +1đ.
+        """
         user = request.user
         from apps.posts.models import Follows
         from django.db.models import Case, When, Value, IntegerField
 
-        # 1. Lấy danh sách ID những người mà user đang đăng nhập ĐÃ follow
+        # Thu thập mảng danh sách ID của các tài khoản đã được thiết lập theo dõi trước đó
         following_ids = Follows.objects.filter(follower=user).values_list('following_id', flat=True)
 
-        # 2. Loại trừ bản thân và những người đã follow, chỉ lấy tài khoản đang hoạt động
+        # Thiết lập bộ lọc loại trừ cốt lõi bảo vệ luồng thuật toán
         users = Users.objects.exclude(id=user.id).exclude(id__in=following_ids).filter(status='Active')
 
-        # 3. Chấm điểm tương đồng (Khoa +2đ, Khóa +1đ, Lớp +1đ)
+        # Khởi tạo biểu thức điều kiện tính điểm tương đồng thực thể thời gian thực
         score = Value(0, output_field=IntegerField())
         if user.faculty:
             score += Case(When(faculty=user.faculty, then=Value(1)), default=Value(0), output_field=IntegerField())
@@ -346,7 +371,7 @@ class UserSuggestedFollowsAPIView(APIView):
         if user.class_name:
             score += Case(When(class_name=user.class_name, then=Value(1)), default=Value(0), output_field=IntegerField())
 
-        # 4. Sắp xếp theo điểm giảm dần, lấy top 5
+        # Sắp xếp danh sách theo tổng điểm ưu tiên giảm dần và lấy Top 5 bản ghi tốt nhất
         users = users.annotate(match_score=score).order_by('-match_score', '-id')[:5]
 
         serializer = UserProfileSerializer(users, many=True, context={'request': request})
