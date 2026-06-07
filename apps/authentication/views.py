@@ -7,7 +7,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from django.contrib.auth.hashers import check_password
 from apps.authentication.models import Users
 from apps.authentication.serializers import LoginRequestSerializer, UserResponseSerializer
-from apps.authentication.serializers import UserResponseSerializer, UserSaveSerializer, UserProfileSerializer
+from apps.authentication.serializers import UserResponseSerializer, UserSaveSerializer, UserProfileSerializer, ProfileUpdateSerializer
 from django.utils import timezone
 
 class LoginAPIView(APIView):
@@ -166,6 +166,20 @@ class UserProfileAPIView(APIView):
 
         serializer = UserProfileSerializer(user, context={'request': request})
         return Response({"data": serializer.data}, status=status.HTTP_200_OK)
+        
+    def put(self, request, pk=None):
+        # Chặn nếu user cố tình truyền id người khác để sửa
+        if pk and str(pk) != str(request.user.id):
+            return Response({"detail": "Bạn không có quyền chỉnh sửa hồ sơ của người khác!"}, status=status.HTTP_403_FORBIDDEN)
+            
+        serializer = ProfileUpdateSerializer(request.user, data=request.data, partial=True)
+        if serializer.is_valid():
+            updated_user = serializer.save()
+            return Response({
+                "data": UserProfileSerializer(updated_user, context={'request': request}).data
+            }, status=status.HTTP_200_OK)
+            
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 class UserFollowAPIView(APIView):
     authentication_classes = [JWTAuthentication]

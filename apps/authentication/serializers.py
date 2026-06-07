@@ -82,3 +82,9 @@ class UserProfileSerializer(serializers.ModelSerializer):
     def get_match_score(self, obj):
         # Lấy giá trị match_score được annotate từ view, nếu không có thì trả về 0 an toàn
         return getattr(obj, 'match_score', 0)
+
+class ProfileUpdateSerializer(serializers.ModelSerializer):
+    """Serializer dùng riêng cho việc cập nhật Profile (giới hạn các trường được phép sửa)"""
+    class Meta:
+        model = Users
+        fields = ['full_name', 'phone_number', 'faculty', 'class_name', 'academic_year']
