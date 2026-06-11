@@ -131,7 +131,6 @@ class PostFeedSerializer(serializers.ModelSerializer):
     Serializer bóc tách dữ liệu bài viết hiển thị trên Bảng tin công khai.
     Tự động tính toán số liệu tương tác (Likes, Comments, Attachments) từ các quan hệ liên kết.
     """
-    # 🌟 SỬA LỖI CHÍ MẠNG: Đã bổ sung khai báo author đồng bộ với Meta fields
     author = UserNestedSerializer(source='user', read_only=True)
     category = CategoryNestedSerializer(read_only=True)
     attachments = serializers.SerializerMethodField()
@@ -228,6 +227,28 @@ class PostListCreateAPIView(APIView):
             category = Categories.objects.get(pk=category_id)
         except Categories.DoesNotExist:
             return Response({"detail": "Category không tồn tại!"}, status=status.HTTP_400_BAD_REQUEST)
+
+        # -----------------------------------------------------------------
+        # Bẫy lỗi chặn trường hợp bài viết trống hoặc chỉ có khoảng trắng
+        # -----------------------------------------------------------------
+        if not content or not str(content).strip():
+            return Response(
+                {"detail": "Nội dung bài viết không được để trống."}, 
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY
+            )
+        
+        # -----------------------------------------------------------------
+        # Bộ lọc từ khóa vi phạm tiêu chuẩn cộng đồng
+        # -----------------------------------------------------------------
+        DANH_MUC_TU_CAM = ['gian lận', 'phao thi', 'mua bán đề', 'lộ đề'] # có thể thêm từ cấm tùy ý vào mảng này
+        content_lower = str(content).lower()
+        
+        if any(tu_cam in content_lower for tu_cam in DANH_MUC_TU_CAM):
+            return Response(
+                {"detail": "Bài viết chứa từ khóa vi phạm tiêu chuẩn cộng đồng."}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        # -----------------------------------------------------------------
 
         # Khởi tạo thực thể bài viết với trạng thái mặc định chờ duyệt (Pending)
         post = Posts.objects.create(
