@@ -109,6 +109,15 @@ class PostValidateAPIView(APIView):
             post.reject_reason = None
             
         elif status_moi.lower() in ['rejected', 'disapproved']:
+            # -----------------------------------------------------------------
+            # Chặn nếu Admin không nhập lý do từ chối bài viết
+            # -----------------------------------------------------------------
+            if not reject_reason or not str(reject_reason).strip():
+                return Response(
+                    {"detail": "Thiếu lý do từ chối bài viết!"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            # -----------------------------------------------------------------
             post.status = 'Rejected'
             # Ghi nhận lý do nhập tay trực tiếp từ Admin
             post.reject_reason = reject_reason if reject_reason else 'Bài viết vi phạm tiêu chuẩn cộng đồng.'
