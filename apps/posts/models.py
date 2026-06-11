@@ -2,7 +2,7 @@
 Models cho module Posts (Bài viết, bình luận, theo dõi, thông báo).
 
 Module này định nghĩa các Django model để quản lý:
-- Bài viết (Posts), bình luận (Comments), tệp đính kèm (Attachments)
+- Bài viết (Posts), bình luận (Comments)
 - Tương tác: Like, Follow, Report, Notification
 - Chat nhóm và tin nhắn (GroupChats, Messages)
 - Xác thực OTP (OtpVerification)
@@ -15,23 +15,6 @@ schema được quản lý bên ngoài Django migration.
 
 from django.db import models
 from apps.authentication.models import Users
-
-
-class Attachments(models.Model):
-    """
-    Tệp đính kèm (hình ảnh, video, tài liệu).
-
-    Tại sao: tách riêng Attachments để hỗ trợ tái sử dụng file trên
-    nhiều entity (post, comment, message) qua bảng junction.
-    """
-    id = models.BigAutoField(primary_key=True)
-    file_url = models.TextField(db_collation='SQL_Latin1_General_CP1_CI_AS')
-    file_type = models.CharField(max_length=20, db_collation='SQL_Latin1_General_CP1_CI_AS', blank=True, null=True)
-    created_at = models.DateTimeField(blank=True, null=True)
-
-    class Meta:
-        managed = False
-        db_table = 'attachments'
 
 
 class AuditLogs(models.Model):
@@ -71,22 +54,6 @@ class Categories(models.Model):
     class Meta:
         managed = False
         db_table = 'categories'
-
-
-class CommentAttachments(models.Model):
-    """
-    Bảng nối liên kết Bình luận (Comments) với Tệp đính kèm (Attachments).
-
-    Tại sao: bình luận có thể chứa ảnh/video; dùng bảng junction để
-    hỗ trợ quan hệ many-to-many và tái sử dụng Attachments.
-    """
-    pk = models.CompositePrimaryKey('comment_id', 'attachment_id')
-    comment = models.ForeignKey('Comments', models.DO_NOTHING)
-    attachment = models.ForeignKey(Attachments, models.DO_NOTHING)
-
-    class Meta:
-        managed = False
-        db_table = 'comment_attachments'
 
 
 class Comments(models.Model):
@@ -186,21 +153,6 @@ class Likes(models.Model):
         unique_together = (('user', 'post'),)
 
 
-class MessageAttachments(models.Model):
-    """
-    Bảng nối liên kết Tin nhắn (Messages) với Tệp đính kèm (Attachments).
-
-    Tại sao: tin nhắn có thể gửi ảnh/video; dùng bảng junction để
-    tái sử dụng Attachments và hỗ trợ multi-file per message.
-    """
-    pk = models.CompositePrimaryKey('message_id', 'attachment_id')
-    message = models.ForeignKey('Messages', models.DO_NOTHING)
-    attachment = models.ForeignKey(Attachments, models.DO_NOTHING)
-
-    class Meta:
-        managed = False
-        db_table = 'message_attachments'
-
 
 class Messages(models.Model):
     """
@@ -262,22 +214,6 @@ class OtpVerification(models.Model):
     class Meta:
         managed = False
         db_table = 'otp_verification'
-
-
-class PostAttachments(models.Model):
-    """
-    Bảng nối liên kết Bài viết (Posts) với Tệp đính kèm (Attachments).
-
-    Tại sao: bài viết có thể chứa nhiều ảnh/video; dùng bảng junction
-    để tái sử dụng Attachments và lưu thứ tự hiển thị nếu cần.
-    """
-    pk = models.CompositePrimaryKey('post_id', 'attachment_id')
-    post = models.ForeignKey('Posts', models.DO_NOTHING)
-    attachment = models.ForeignKey(Attachments, models.DO_NOTHING)
-
-    class Meta:
-        managed = False
-        db_table = 'post_attachments'
 
 
 class Posts(models.Model):
