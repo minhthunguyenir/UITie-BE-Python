@@ -386,7 +386,6 @@ class PostShareAPIView(APIView):
 class CommentSerializer(serializers.ModelSerializer):
     """Serializer hỗ trợ đóng gói phân hệ bình luận dạng cây phân cấp (Threaded Reply)."""
     user = UserNestedSerializer(read_only=True)
-    attachments = serializers.SerializerMethodField()
     parent_comment_id = serializers.ReadOnlyField()
     post_id = serializers.ReadOnlyField()
 
