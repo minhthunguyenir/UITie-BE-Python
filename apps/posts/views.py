@@ -138,11 +138,10 @@ class PostValidateAPIView(APIView):
 class PostFeedSerializer(serializers.ModelSerializer):
     """
     Serializer bóc tách dữ liệu bài viết hiển thị trên Bảng tin công khai.
-    Tự động tính toán số liệu tương tác (Likes, Comments, Attachments) từ các quan hệ liên kết.
+    Tự động tính toán số liệu tương tác (Likes, Comments) từ các quan hệ liên kết.
     """
     author = UserNestedSerializer(source='user', read_only=True)
     category = CategoryNestedSerializer(read_only=True)
-    attachments = serializers.SerializerMethodField()
     likes = serializers.SerializerMethodField()
     comments = serializers.SerializerMethodField()
     parent_post = serializers.SerializerMethodField()
@@ -151,24 +150,8 @@ class PostFeedSerializer(serializers.ModelSerializer):
         model = Posts
         fields = [
             'id', 'author', 'category', 'content', 'visibility', 'status', 
-            'is_edited', 'created_at', 'updated_at', 'attachments', 'likes', 
+            'is_edited', 'created_at', 'updated_at', 'likes', 
             'comments', 'parent_post'
-        ]
-
-    def get_attachments(self, obj):
-        """Truy vấn danh sách tệp tin đính kèm liên kết qua bảng trung gian."""
-        from apps.posts.models import PostAttachments, Attachments
-        attachment_ids = PostAttachments.objects.filter(post=obj).values_list('attachment_id', flat=True)
-        attachments = Attachments.objects.filter(id__in=attachment_ids)
-        return [
-            {
-                "id": att.id,
-                "file_url": att.file_url,
-                "view_url": att.file_url,
-                "file_type": att.file_type,
-                "file_name": att.file_url.split('/')[-1] if att.file_url else ""
-            }
-            for att in attachments
         ]
 
     def get_likes(self, obj):
@@ -269,16 +252,6 @@ class PostListCreateAPIView(APIView):
             is_edited=False
         )
         
-        # Đồng bộ hóa siêu dữ liệu tệp tin đính kèm (đã upload thông qua Object Storage MinIO)
-        attachments_data = request.data.get('attachments', [])
-        from apps.posts.models import Attachments, PostAttachments
-        if attachments_data:
-            for att_data in attachments_data:
-                att = Attachments.objects.create(
-                    file_url=att_data.get('file_url'),
-                    file_type=att_data.get('file_type')
-                )
-                PostAttachments.objects.create(post=post, attachment=att)
 
         return Response({
             "status": True,
@@ -340,17 +313,6 @@ class PostDetailAPIView(APIView):
 
         post.save()
 
-        # Làm mới mảng tệp tin đính kèm nếu phía client có sự thay đổi cấu trúc tệp
-        attachments_data = request.data.get('attachments')
-        if attachments_data is not None:
-            from apps.posts.models import Attachments, PostAttachments
-            PostAttachments.objects.filter(post=post).delete()
-            for att_data in attachments_data:
-                att = Attachments.objects.create(
-                    file_url=att_data.get('file_url'),
-                    file_type=att_data.get('file_type')
-                )
-                PostAttachments.objects.create(post=post, attachment=att)
 
         return Response({
             "status": True,
@@ -430,26 +392,8 @@ class CommentSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Comments
-        fields = ['id', 'post_id', 'user', 'parent_comment_id', 'content', 'created_at', 'updated_at', 'attachments']
+        fields = ['id', 'post_id', 'user', 'parent_comment_id', 'content', 'created_at', 'updated_at']
         read_only_fields = ['id', 'user', 'created_at', 'updated_at']
-
-    def get_attachments(self, obj):
-        try:
-            from apps.posts.models import CommentAttachments, Attachments
-            attachment_ids = CommentAttachments.objects.filter(comment=obj).values_list('attachment_id', flat=True)
-            attachments = Attachments.objects.filter(id__in=attachment_ids)
-            return [
-                {
-                    "id": att.id,
-                    "file_url": att.file_url,
-                    "view_url": att.file_url,
-                    "file_type": att.file_type,
-                    "file_name": att.file_url.split('/')[-1] if att.file_url else ""
-                }
-                for att in attachments
-            ]
-        except Exception:
-            return []
 
 
 class CommentListCreateAPIView(APIView):
@@ -475,10 +419,9 @@ class CommentListCreateAPIView(APIView):
             
         content = request.data.get('content')
         parent_comment_id = request.data.get('parent_comment_id')
-        attachments_data = request.data.get('attachments', [])
         
-        if not content and not attachments_data:
-            return Response({"detail": "Nội dung hoặc file đính kèm là bắt buộc!"}, status=status.HTTP_400_BAD_REQUEST)
+        if not content:
+            return Response({"detail": "Nội dung bình luận là bắt buộc!"}, status=status.HTTP_400_BAD_REQUEST)
             
         parent_comment = None
         if parent_comment_id:
@@ -493,18 +436,6 @@ class CommentListCreateAPIView(APIView):
             parent_comment=parent_comment,
             content=content
         )
-        
-        if attachments_data:
-            try:
-                from apps.posts.models import Attachments, CommentAttachments
-                for att_data in attachments_data:
-                    att = Attachments.objects.create(
-                        file_url=att_data.get('file_url'),
-                        file_type=att_data.get('file_type')
-                    )
-                    CommentAttachments.objects.create(comment=comment, attachment=att)
-            except ImportError:
-                pass
 
         return Response({
             "status": True,
