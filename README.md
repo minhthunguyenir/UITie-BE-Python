@@ -30,12 +30,12 @@ Trước khi tiến hành cài đặt, hãy đảm bảo máy tính đã cài đ
 
 ---
 
-## 🚀 Hướng Dẫn Cài Đặt Chi Tiết
+## Hướng Dẫn Cài Đặt Chi Tiết
 
 ### 1. Tải Mã Nguồn Về Máy
 ```bash
-git clone [https://github.com/your-username/UITie.git](https://github.com/your-username/UITie.git)
-cd UITie
+git clone [https://github.com/minhthunguyenir/UITie-BE-Python.git](https://github.com/minhthunguyenir/UITie-BE-Python.git)
+cd UITie-BE-Python
 ```
 
 ### 2. Cấu Hình & Chạy Backend (Django)
