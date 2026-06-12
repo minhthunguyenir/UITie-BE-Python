@@ -1,16 +1,12 @@
-# Requirements cho dự án UITie.
-# Tập trung vào Django REST API, JWT auth và kết nối SQL Server legacy.
-# Versions được khoá để tránh drift giữa các môi trường deploy/dev.
-
-asgiref==3.11.1           # Hỗ trợ ASGI/WSGI cho Django, cần thiết cho Django 6.x.
-Django==6.0.5              # Framework chính của backend.
-django-cors-headers==4.9.0 # Cho phép frontend React gọi API local trong giai đoạn development.
-djangorestframework==3.17.1 # Core DRF để xây dựng API JSON.
-djangorestframework_simplejwt==5.5.1 # JWT authentication cho REST API.
-mssql-django==1.7.2        # Trình điều khiển Django cho SQL Server.
-PyJWT==2.13.0              # Giải mã/mã hóa JWT nếu cần dùng trực tiếp.
-pyodbc==5.3.0              # Driver ODBC cho kết nối SQL Server từ Python.
-python-dotenv==1.2.2       # Đọc biến môi trường từ file .env.
-pytz==2026.2              # Quản lý múi giờ cho Django.
-sqlparse==0.5.5            # Hỗ trợ định dạng SQL, thường được Django admin dùng.
-Faker                      # Dùng cho seed data và test giả lập dữ liệu.
+asgiref==3.11.1
+Django==6.0.5
+django-cors-headers==4.9.0
+djangorestframework==3.17.1
+djangorestframework_simplejwt==5.5.1
+Faker==40.21.0
+mssql-django==1.7.2
+PyJWT==2.13.0
+pyodbc==5.3.0
+python-dotenv==1.2.2
+pytz==2026.2
+sqlparse==0.5.5
